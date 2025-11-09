@@ -1,0 +1,376 @@
+"""
+Tarefas Celery relacionadas ao envio de campanhas.
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import random
+from datetime import datetime, timezone
+from typing import Iterable, Sequence
+from uuid import UUID
+
+from celery import shared_task
+from redis import Redis
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from ..app.config import settings
+from ..app.database import AsyncSessionLocal
+from ..app.models.campaign import (
+    Campaign,
+    CampaignContact,
+    CampaignMessage,
+    CampaignStatus,
+    CampaignType,
+    MessageStatus,
+)
+from ..app.services.baileys_client import get_baileys_client
+
+logger = logging.getLogger("whago.campaign.tasks")
+
+
+def _get_sync_redis() -> Redis:
+    return Redis.from_url(
+        settings.redis_url,
+        encoding="utf-8",
+        decode_responses=True,
+    )
+
+
+def _publish_update(campaign_id: UUID, payload: dict) -> None:
+    channel = f"{settings.redis_campaign_updates_channel}:{campaign_id}"
+    redis_client = _get_sync_redis()
+    try:
+        redis_client.publish(channel, json.dumps(payload, default=str))
+    finally:
+        redis_client.close()
+
+
+def _render_message(
+    template: str,
+    contact: CampaignContact,
+) -> str:
+    variables = {
+        "nome": contact.name or "",
+        "name": contact.name or "",
+        "empresa": contact.company or "",
+        "company": contact.company or "",
+    }
+    if contact.variables:
+        variables.update(contact.variables)
+
+    text = template
+    for key, value in variables.items():
+        text = text.replace(f"{{{{{key}}}}}", str(value))
+    return text
+
+
+async def _prepare_campaign_messages(
+    session: AsyncSession,
+    campaign: Campaign,
+) -> list[UUID]:
+    result = await session.execute(
+        select(CampaignMessage.id)
+        .where(CampaignMessage.campaign_id == campaign.id)
+        .order_by(CampaignMessage.created_at.asc())
+    )
+    existing_ids = [row[0] for row in result.all()]
+    if existing_ids:
+        return existing_ids
+
+    result_contacts = await session.execute(
+        select(CampaignContact).where(CampaignContact.campaign_id == campaign.id)
+    )
+    contacts: list[CampaignContact] = result_contacts.scalars().all()
+    if not contacts:
+        raise ValueError("Campanha não possui contatos para envio.")
+
+    settings_data = campaign.settings or {}
+    chip_ids: list[str] = settings_data.get("chip_ids") or []
+    if not chip_ids:
+        raise ValueError("Nenhum chip configurado para esta campanha.")
+
+    chip_cycle = [UUID(str(value)) for value in chip_ids]
+    random.shuffle(chip_cycle)
+    total_contacts = len(contacts)
+    created_ids: list[UUID] = []
+
+    for idx, contact in enumerate(contacts):
+        template = campaign.message_template
+        variant = None
+
+        if campaign.type == CampaignType.AB_TEST and campaign.message_template_b:
+            variant = "A" if idx % 2 == 0 else "B"
+            template = campaign.message_template if variant == "A" else campaign.message_template_b
+
+        rendered = _render_message(template, contact)
+        chip_id = chip_cycle[idx % len(chip_cycle)]
+
+        message = CampaignMessage(
+            campaign_id=campaign.id,
+            contact_id=contact.id,
+            chip_id=chip_id,
+            content=rendered,
+            variant=variant,
+        )
+        session.add(message)
+        await session.flush()
+        created_ids.append(message.id)
+
+    campaign.total_contacts = total_contacts
+    campaign.sent_count = 0
+    campaign.delivered_count = 0
+    campaign.read_count = 0
+    campaign.failed_count = 0
+    campaign.credits_consumed = 0
+    await session.commit()
+    return created_ids
+
+
+async def _update_campaign_status(
+    session,
+    campaign_id: UUID,
+    status: CampaignStatus,
+    **metadata,
+) -> None:
+    await session.execute(
+        update(Campaign)
+        .where(Campaign.id == campaign_id)
+        .values(status=status, **metadata)
+    )
+    await session.commit()
+    _publish_update(
+        campaign_id,
+        {
+            "type": "status",
+            "status": status,
+            "metadata": metadata,
+        },
+    )
+
+
+async def _execute_send_message(message_id: UUID) -> bool:
+    async with AsyncSessionLocal() as session:
+        message = await session.get(CampaignMessage, message_id)
+        if message is None:
+            logger.warning("Mensagem %s não encontrada.", message_id)
+            return False
+
+        campaign = await session.get(Campaign, message.campaign_id)
+        if campaign is None:
+            logger.warning("Campanha %s não encontrada.", message.campaign_id)
+            return False
+
+        if campaign.status != CampaignStatus.RUNNING:
+            logger.info(
+                "Ignorando mensagem %s pois campanha está em estado %s",
+                message_id,
+                campaign.status,
+            )
+            return False
+
+        contact = await session.get(CampaignContact, message.contact_id)
+        if contact is None:
+            logger.warning("Contato %s não encontrado.", message.contact_id)
+            return False
+
+        if message.status not in {MessageStatus.PENDING, MessageStatus.FAILED}:
+            return False
+
+        message.status = MessageStatus.SENDING
+        await session.commit()
+
+        try:
+            baileys = get_baileys_client()
+            payload = {
+                "sessionId": str(message.chip_id),
+                "to": contact.phone_number,
+                "message": message.content,
+            }
+            response = await baileys.send_message(payload)
+            logger.debug("Resposta Baileys %s", response)
+
+            message.status = MessageStatus.SENT
+            message.sent_at = datetime.now(timezone.utc)
+            campaign.sent_count += 1
+            campaign.credits_consumed += 1
+            await session.commit()
+
+            _publish_update(
+                campaign.id,
+                {
+                    "type": "message_sent",
+                    "message_id": str(message.id),
+                    "contact_id": str(contact.id),
+                    "status": message.status,
+                },
+            )
+            return True
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("Falha ao enviar mensagem %s: %s", message_id, exc)
+            message.status = MessageStatus.FAILED
+            message.failure_reason = str(exc)
+            campaign.failed_count += 1
+            await session.commit()
+            _publish_update(
+                campaign.id,
+                {
+                    "type": "message_failed",
+                    "message_id": str(message.id),
+                    "contact_id": str(contact.id),
+                    "status": message.status,
+                    "reason": message.failure_reason,
+                },
+            )
+            return False
+
+
+def _compute_interval(base_interval: int, randomize: bool) -> float:
+    if base_interval <= 0:
+        return 0.0
+    if not randomize:
+        return float(base_interval)
+    lower = max(base_interval * 0.8, 0.5)
+    upper = max(base_interval * 1.2, lower)
+    return random.uniform(lower, upper)
+
+
+async def _is_campaign_running(campaign_id: UUID) -> bool:
+    async with AsyncSessionLocal() as session:
+        campaign = await session.get(Campaign, campaign_id)
+        if campaign is None:
+            return False
+        return campaign.status == CampaignStatus.RUNNING
+
+
+async def _dispatch_messages(
+    campaign_id: UUID,
+    message_ids: Sequence[UUID],
+    settings: dict,
+) -> None:
+    interval = int(settings.get("interval_seconds") or 10)
+    randomize_interval = bool(settings.get("randomize_interval"))
+    retry_attempts = int(settings.get("retry_attempts") or 0)
+    retry_interval = int(settings.get("retry_interval_seconds") or 60)
+
+    for index, message_id in enumerate(message_ids):
+        attempts = 0
+        while True:
+            if not await _is_campaign_running(campaign_id):
+                return
+            success = await _execute_send_message(message_id)
+            if success or attempts >= retry_attempts:
+                break
+            attempts += 1
+            await asyncio.sleep(max(retry_interval, 1))
+
+        if not await _is_campaign_running(campaign_id):
+            return
+
+        if index < len(message_ids) - 1:
+            await asyncio.sleep(_compute_interval(interval, randomize_interval))
+
+
+async def _finalize_campaign_if_complete(campaign_id: UUID) -> None:
+    async with AsyncSessionLocal() as session:
+        campaign = await session.get(Campaign, campaign_id)
+        if campaign is None:
+            return
+        result = await session.execute(
+            select(CampaignMessage.id).where(
+                CampaignMessage.campaign_id == campaign.id,
+                CampaignMessage.status.in_(
+                    [MessageStatus.PENDING, MessageStatus.SENDING, MessageStatus.FAILED]
+                ),
+            )
+        )
+        remaining = result.all()
+        if campaign.status == CampaignStatus.RUNNING and not remaining:
+            await _update_campaign_status(
+                session,
+                campaign_id,
+                CampaignStatus.COMPLETED,
+                completed_at=datetime.now(timezone.utc),
+            )
+
+
+@shared_task(name="campaign.start_dispatch")
+def start_campaign_dispatch(campaign_id: str) -> None:
+    asyncio.run(_start_campaign_dispatch(UUID(campaign_id)))
+
+
+async def _start_campaign_dispatch(campaign_id: UUID) -> None:
+    async with AsyncSessionLocal() as session:
+        campaign = await session.get(Campaign, campaign_id)
+        if campaign is None:
+            logger.error("Campanha %s não encontrada para dispatch.", campaign_id)
+            return
+        if campaign.status not in {
+            CampaignStatus.RUNNING,
+            CampaignStatus.SCHEDULED,
+            CampaignStatus.DRAFT,
+        }:
+            logger.info(
+                "Campanha %s em estado %s não será processada.",
+                campaign_id,
+                campaign.status,
+            )
+            return
+
+        if campaign.status != CampaignStatus.RUNNING:
+            campaign.status = CampaignStatus.RUNNING
+            campaign.started_at = datetime.now(timezone.utc)
+            await session.commit()
+            _publish_update(
+                campaign.id,
+                {
+                    "type": "status",
+                    "status": CampaignStatus.RUNNING,
+                    "metadata": {"started_at": campaign.started_at},
+                },
+            )
+            await session.refresh(campaign)
+
+        settings_data = campaign.settings or {}
+        message_ids = await _prepare_campaign_messages(session, campaign)
+
+    await _dispatch_messages(campaign_id, message_ids, settings_data)
+    await _finalize_campaign_if_complete(campaign_id)
+
+
+@shared_task(name="campaign.resume_dispatch")
+def resume_campaign_dispatch(campaign_id: str) -> None:
+    asyncio.run(_resume_campaign_dispatch(UUID(campaign_id)))
+
+
+async def _resume_campaign_dispatch(campaign_id: UUID) -> None:
+    async with AsyncSessionLocal() as session:
+        campaign = await session.get(Campaign, campaign_id)
+        if campaign is None:
+            return
+        if campaign.status != CampaignStatus.RUNNING:
+            return
+
+        result = await session.execute(
+            select(CampaignMessage.id)
+            .where(
+                CampaignMessage.campaign_id == campaign.id,
+                CampaignMessage.status.in_(
+                    [MessageStatus.PENDING, MessageStatus.FAILED]
+                ),
+            )
+            .order_by(CampaignMessage.created_at.asc())
+        )
+        message_ids = [row[0] for row in result.all()]
+        settings_data = campaign.settings or {}
+
+    await _dispatch_messages(campaign_id, message_ids, settings_data)
+    await _finalize_campaign_if_complete(campaign_id)
+
+
+__all__ = ("start_campaign_dispatch", "resume_campaign_dispatch")
+
+

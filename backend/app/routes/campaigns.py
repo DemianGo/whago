@@ -4,13 +4,18 @@ Rotas de campanhas.
 
 from __future__ import annotations
 
+import asyncio
+from contextlib import suppress
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..database import get_db
-from ..dependencies.auth import get_current_user
+from ..config import settings
+from ..database import AsyncSessionLocal, get_db
+from ..dependencies.auth import authenticate_websocket, get_current_user
+from ..core.redis import get_redis_client
+from ..models.campaign import Campaign
 from ..models.user import User
 from ..schemas.campaign import (
     CampaignActionResponse,
@@ -146,5 +151,57 @@ async def list_messages(
 ) -> list[CampaignMessageResponse]:
     service = CampaignService(session)
     return await service.list_messages(current_user, campaign_id, limit=limit, offset=offset)
+
+
+@router.websocket("/ws/{campaign_id}")
+async def campaign_updates_ws(websocket: WebSocket, campaign_id: UUID) -> None:
+    async with AsyncSessionLocal() as session:
+        try:
+            user = await authenticate_websocket(websocket, session)
+        except HTTPException as exc:
+            await websocket.close(code=1008, reason=exc.detail)
+            return
+
+        campaign = await session.get(Campaign, campaign_id)
+        if campaign is None or campaign.user_id != user.id:
+            await websocket.close(code=1008, reason="Campanha não encontrada ou acesso negado.")
+            return
+
+        initial_payload = {
+            "type": "initial_state",
+            "campaign_id": str(campaign.id),
+            "status": campaign.status.value,
+            "total_contacts": campaign.total_contacts,
+            "sent_count": campaign.sent_count,
+            "delivered_count": campaign.delivered_count,
+            "read_count": campaign.read_count,
+            "failed_count": campaign.failed_count,
+            "credits_consumed": campaign.credits_consumed,
+        }
+
+    await websocket.accept()
+    await websocket.send_json(initial_payload)
+
+    redis = get_redis_client()
+    pubsub = redis.pubsub()
+    channel = f"{settings.redis_campaign_updates_channel}:{campaign_id}"
+    await pubsub.subscribe(channel)
+
+    try:
+        while True:
+            message = await pubsub.get_message(ignore_subscribe_messages=True, timeout=5.0)
+            if message is None:
+                await asyncio.sleep(0.5)
+                continue
+            await websocket.send_text(message["data"])
+    except WebSocketDisconnect:
+        pass
+    finally:
+        try:
+            await pubsub.unsubscribe(channel)
+        finally:
+            await pubsub.close()
+            with suppress(RuntimeError):
+                await websocket.close()
 
 

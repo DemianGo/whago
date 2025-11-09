@@ -22,6 +22,14 @@ class Settings(BaseSettings):
     
     # Redis
     redis_url: str = "redis://redis:6379/0"
+    redis_campaign_updates_channel: str = "campaign_updates"
+    
+    # Celery
+    celery_broker_url: str = "redis://redis:6379/1"
+    celery_result_backend: str = "redis://redis:6379/2"
+    celery_task_default_queue: str = "whago_default"
+    celery_task_queue_campaigns: str = "whago_campaigns"
+    celery_task_soft_time_limit: int = 120
     
     # Baileys Service
     baileys_api_url: str = "http://baileys:3000"

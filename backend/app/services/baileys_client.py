@@ -74,6 +74,9 @@ class BaileysClient:
     async def get_qr_code(self, session_id: str) -> dict[str, Any]:
         return await self._request("GET", f"/sessions/{session_id}/qr")
 
+    async def send_message(self, payload: dict[str, Any]) -> Any:
+        return await self._request("POST", "/messages/send", json=payload)
+
 
 @lru_cache(maxsize=1)
 def get_baileys_client() -> BaileysClient:

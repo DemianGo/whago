@@ -6,7 +6,9 @@ from __future__ import annotations
 
 import csv
 import io
+import json
 import logging
+from datetime import datetime, timezone
 from typing import Iterable
 from uuid import UUID
 
@@ -14,6 +16,9 @@ from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ...tasks.campaign_tasks import resume_campaign_dispatch, start_campaign_dispatch
+from ..config import settings
+from ..core.redis import get_redis_client
 from ..models.campaign import (
     Campaign,
     CampaignContact,
@@ -184,8 +189,20 @@ class CampaignService:
             if len(preview) < 10:
                 preview.append({"numero": normalized, "nome": name, "empresa": company})
 
-        campaign.total_contacts += valid
+        result_total = await self.session.execute(
+            select(func.count(CampaignContact.id)).where(CampaignContact.campaign_id == campaign.id)
+        )
+        campaign.total_contacts = result_total.scalar_one()
         await self.session.commit()
+
+        await self._publish_event(
+            campaign.id,
+            {
+                "type": "contacts_updated",
+                "total_contacts": campaign.total_contacts,
+                "added": valid,
+            },
+        )
 
         return ContactUploadResponse(
             total_processed=total,
@@ -197,20 +214,73 @@ class CampaignService:
 
     async def start_campaign(self, user: User, campaign_id: UUID) -> CampaignActionResponse:
         campaign = await self._get_user_campaign(user, campaign_id)
-        if campaign.status not in {CampaignStatus.DRAFT, CampaignStatus.SCHEDULED, CampaignStatus.PAUSED}:
+        if campaign.status == CampaignStatus.RUNNING:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Campanha não está em estado que permita iniciar.",
+                detail="Campanha já está em andamento.",
             )
-        if campaign.total_contacts == 0:
+        if campaign.status in {CampaignStatus.CANCELLED, CampaignStatus.COMPLETED, CampaignStatus.ERROR}:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Não é possível iniciar uma campanha encerrada.",
+            )
+
+        result_contacts = await self.session.execute(
+            select(func.count(CampaignContact.id)).where(CampaignContact.campaign_id == campaign.id)
+        )
+        total_contacts = result_contacts.scalar_one()
+        if total_contacts == 0:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Campanha precisa ter contatos válidos antes de iniciar.",
             )
 
+        settings_data = campaign.settings or {}
+        chip_ids = settings_data.get("chip_ids") or []
+        if not chip_ids:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Configure ao menos um chip para a campanha.",
+            )
+
+        campaign.total_contacts = total_contacts
+
+        now = datetime.now(timezone.utc)
+
+        if campaign.status == CampaignStatus.PAUSED:
+            campaign.status = CampaignStatus.RUNNING
+            await self.session.commit()
+            resume_campaign_dispatch.delay(str(campaign.id))
+            await self._publish_status(campaign.id, CampaignStatus.RUNNING, resumed_at=now)
+            await self.session.refresh(campaign)
+            return CampaignActionResponse(status=campaign.status, message="Campanha retomada.")
+
+        if campaign.scheduled_for:
+            eta = campaign.scheduled_for
+            if eta.tzinfo is None:
+                eta = eta.replace(tzinfo=timezone.utc)
+            if eta > now:
+                campaign.status = CampaignStatus.SCHEDULED
+                campaign.started_at = None
+                await self.session.commit()
+                start_campaign_dispatch.apply_async((str(campaign.id),), eta=eta)
+                await self._publish_status(
+                    campaign.id,
+                    CampaignStatus.SCHEDULED,
+                    scheduled_for=eta,
+                )
+                await self.session.refresh(campaign)
+                return CampaignActionResponse(
+                    status=campaign.status,
+                    message=f"Campanha agendada para {eta.isoformat()}",
+                )
+
         campaign.status = CampaignStatus.RUNNING
-        campaign.started_at = campaign.started_at or campaign.scheduled_for or func.now()
+        campaign.started_at = now
         await self.session.commit()
+        start_campaign_dispatch.delay(str(campaign.id))
+        await self._publish_status(campaign.id, CampaignStatus.RUNNING, started_at=now)
+        await self.session.refresh(campaign)
         return CampaignActionResponse(status=campaign.status, message="Campanha iniciada.")
 
     async def pause_campaign(self, user: User, campaign_id: UUID) -> CampaignActionResponse:
@@ -223,6 +293,8 @@ class CampaignService:
 
         campaign.status = CampaignStatus.PAUSED
         await self.session.commit()
+        await self._publish_status(campaign.id, CampaignStatus.PAUSED, paused_at=datetime.now(timezone.utc))
+        await self.session.refresh(campaign)
         return CampaignActionResponse(status=campaign.status, message="Campanha pausada.")
 
     async def cancel_campaign(self, user: User, campaign_id: UUID) -> CampaignActionResponse:
@@ -233,9 +305,27 @@ class CampaignService:
                 detail="Campanha não está em estado que permita cancelamento.",
             )
 
+        now = datetime.now(timezone.utc)
+        update_result = await self.session.execute(
+            update(CampaignMessage)
+            .where(
+                CampaignMessage.campaign_id == campaign.id,
+                CampaignMessage.status.in_(
+                    [MessageStatus.PENDING, MessageStatus.SENDING, MessageStatus.FAILED]
+                ),
+            )
+            .values(
+                status=MessageStatus.FAILED,
+                failure_reason="Campanha cancelada pelo usuário.",
+            )
+        )
+        affected = update_result.rowcount or 0
+        campaign.failed_count += affected
         campaign.status = CampaignStatus.CANCELLED
-        campaign.completed_at = func.now()
+        campaign.completed_at = now
         await self.session.commit()
+        await self._publish_status(campaign.id, CampaignStatus.CANCELLED, cancelled_at=now)
+        await self.session.refresh(campaign)
         return CampaignActionResponse(status=campaign.status, message="Campanha cancelada.")
 
     async def list_messages(
@@ -264,6 +354,29 @@ class CampaignService:
                 detail="Campanha não encontrada.",
             )
         return campaign
+
+    async def _publish_event(self, campaign_id: UUID, payload: dict) -> None:
+        redis = get_redis_client()
+        channel = f"{settings.redis_campaign_updates_channel}:{campaign_id}"
+        try:
+            await redis.publish(channel, json.dumps(payload, default=str))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Falha ao publicar evento da campanha %s: %s", campaign_id, exc)
+
+    async def _publish_status(
+        self,
+        campaign_id: UUID,
+        status: CampaignStatus,
+        **metadata,
+    ) -> None:
+        await self._publish_event(
+            campaign_id,
+            {
+                "type": "status",
+                "status": status,
+                "metadata": metadata,
+            },
+        )
 
     def _normalize_settings(
         self,

@@ -50,6 +50,25 @@ services:
     command: >
       sh -c "uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
 
+  celery:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: whago-celery
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend:/app
+      - ./backend/.env:/app/.env
+    command: >
+      sh -c "celery -A backend.tasks.celery_app worker --loglevel=info --concurrency=1"
+
   baileys:
     build:
       context: ./baileys-service

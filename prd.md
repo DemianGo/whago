@@ -1359,7 +1359,7 @@ Somos da {{empresa}} e temos uma proposta especial para você!
 4. ~~**Semana 7-8**: Integração com Baileys e gerenciamento de chips~~ ✅
 5. **Semana 9-10**: Dashboard, relatórios e billing
    - [x] Implementar serviços e rotas de campanhas (criar/listar/detalhar/start/pausar)
-   - [ ] Configurar fila de envio (Celery/worker) e WebSocket de acompanhamento
+   - [x] Configurar fila de envio (Celery/worker) e WebSocket de acompanhamento
    - [ ] Integrar disparo real com Baileys, limites por plano e monitoramento em tempo real
 6. **Semana 11**: Testes, correções, ajustes de UX
 7. **Semana 12**: Deploy, documentação, onboarding
