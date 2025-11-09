@@ -88,8 +88,14 @@ class AuthService:
                 detail="Não foi possível criar o usuário.",
             ) from exc
 
+        await self.session.refresh(user)
         await self.session.refresh(user, attribute_names=["plan"])
-        tokens = await self._issue_auth_tokens(user, user_agent, ip_address)
+        try:
+            tokens = await self._issue_auth_tokens(user, user_agent, ip_address)
+        except Exception as exc:  # noqa: BLE001
+            await self.session.delete(user)
+            await self.session.commit()
+            raise
         return self._build_auth_response(user, tokens)
 
     async def login(
@@ -121,6 +127,7 @@ class AuthService:
 
         user.last_login_at = datetime.utcnow()
         await self.session.commit()
+        await self.session.refresh(user)
         await self.session.refresh(user, attribute_names=["plan"])
 
         tokens = await self._issue_auth_tokens(user, user_agent, ip_address)
@@ -177,6 +184,7 @@ class AuthService:
         )
 
         await self.session.commit()
+        await self.session.refresh(user)
         await self.session.refresh(user, attribute_names=["plan"])
         return self._build_auth_response(user, tokens)
 
@@ -260,6 +268,7 @@ class AuthService:
             "type": "access",
             "exp": now + timedelta(minutes=settings.jwt_access_token_expire_minutes),
             "iat": now,
+            "jti": secrets.token_urlsafe(16),
         }
         return jwt.encode(
             payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm

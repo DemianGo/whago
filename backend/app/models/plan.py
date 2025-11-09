@@ -34,7 +34,12 @@ class Plan(Base):
     name: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     slug: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     tier: Mapped[PlanTier] = mapped_column(
-        Enum(PlanTier, name="plan_tier", native_enum=False),
+        Enum(
+            PlanTier,
+            name="plan_tier",
+            native_enum=False,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
         nullable=False,
     )
     price: Mapped[Numeric] = mapped_column(Numeric(10, 2), nullable=False, default=0)

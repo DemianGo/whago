@@ -51,7 +51,12 @@ class CreditLedger(Base):
         nullable=True,
     )
     source: Mapped[CreditSource] = mapped_column(
-        Enum(CreditSource, name="credit_source", native_enum=False),
+        Enum(
+            CreditSource,
+            name="credit_source",
+            native_enum=False,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
         nullable=False,
     )
     amount: Mapped[int] = mapped_column(Integer, nullable=False)

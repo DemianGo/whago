@@ -71,35 +71,18 @@ def user_payload_factory() -> Callable[..., dict[str, Any]]:
     return _factory
 
 
-@pytest_asyncio.fixture
-async def register_user(
-    db_session: AsyncSession,
+@pytest.fixture
+def register_user(
     user_payload_factory: Callable[..., dict[str, Any]],
-) -> AsyncIterator[Callable[..., Awaitable[tuple[httpx.Response, dict[str, Any]]]]]:
-    """
-    Registra usuários via API real e garante cleanup ao término.
-
-    Retorna callable que aceita overrides no payload e devolve (response, payload).
-    """
-
-    created_emails: set[str] = set()
+) -> Callable[..., Awaitable[tuple[httpx.Response, dict[str, Any]]]]:
+    """Registra usuário via API e retorna resposta + payload utilizado."""
 
     async def _register(**overrides: Any) -> tuple[httpx.Response, dict[str, Any]]:
         payload = user_payload_factory(**overrides)
         async with httpx.AsyncClient(base_url=BASE_URL) as client:
             response = await client.post("/api/v1/auth/register", json=payload)
-
-        if 200 <= response.status_code < 300:
-            created_emails.add(payload["email"].lower())
         return response, payload
-
-    yield _register
-
-    if created_emails:
-        await db_session.execute(
-            delete(User).where(User.email.in_(list(created_emails)))
-        )
-        await db_session.commit()
+    return _register
 
 
 @pytest_asyncio.fixture
@@ -129,8 +112,22 @@ def async_client_factory(base_url: str) -> Callable[..., httpx.AsyncClient]:
 
     def _factory(**kwargs: Any) -> httpx.AsyncClient:
         headers = kwargs.pop("headers", {})
-        return httpx.AsyncClient(base_url=base_url, headers=headers, **kwargs)
+        client = httpx.AsyncClient(base_url=base_url, headers=headers, **kwargs)
+
+        original_set = client.cookies.set
+
+        def patched_set(name: str, value: str, *args: Any, **set_kwargs: Any):
+            domain = set_kwargs.get("domain")
+            if domain == "localhost":
+                set_kwargs.pop("domain")
+            return original_set(name, value, *args, **set_kwargs)
+
+        client.cookies.set = patched_set  # type: ignore[assignment]
+        return client
 
     return _factory
+
+
+
 
 

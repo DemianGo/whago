@@ -1362,6 +1362,9 @@ Somos da {{empresa}} e temos uma proposta especial para você!
    - [x] Configurar fila de envio (Celery/worker) e WebSocket de acompanhamento
    - [x] Integrar disparo real com Baileys, limites por plano e monitoramento em tempo real
 6. **Semana 11**: Testes, correções, ajustes de UX
+   - [x] Construir suíte automatizada de testes end-to-end via HTTP para o backend
+   - [x] Corrigir inconsistências identificadas (tokens, isolamento multi-tenant, validações)
+   - [x] Ajustes de UX e refino do painel conforme feedback do PRD
 7. **Semana 12**: Deploy, documentação, onboarding
 
 **Equipe Mínima:**

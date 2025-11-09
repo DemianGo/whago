@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import enum
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import (
@@ -24,7 +24,7 @@ from ..database import Base
 
 
 class TokenType(str, enum.Enum):
-    """Tipos de token rastreados no sistema."""
+    """Tipos de token rastreados no sistema (valores em minúsculo)."""
 
     REFRESH = "refresh"
     RESET_PASSWORD = "reset_password"
@@ -50,7 +50,12 @@ class UserToken(Base):
     )
     token_hash: Mapped[str] = mapped_column(String(128), nullable=False)
     token_type: Mapped[TokenType] = mapped_column(
-        Enum(TokenType, name="token_type", native_enum=False),
+        Enum(
+            TokenType,
+            name="token_type",
+            native_enum=False,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
         nullable=False,
     )
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
@@ -72,7 +77,7 @@ class UserToken(Base):
     def is_active(self) -> bool:
         """Retorna True se o token não está expirado, consumido ou revogado."""
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if self.revoked_at or self.consumed_at:
             return False
         return self.expires_at > now

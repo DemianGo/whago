@@ -5,8 +5,9 @@ Serviço para operações relacionadas a chips.
 from __future__ import annotations
 
 from datetime import datetime
+import logging
 from typing import Iterable
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
@@ -22,6 +23,9 @@ from ..schemas.chip import (
     ChipQrResponse,
 )
 from .baileys_client import BaileysClient, get_baileys_client
+
+
+logger = logging.getLogger("whago.chips")
 
 
 class ChipService:
@@ -61,13 +65,22 @@ class ChipService:
         await self._ensure_alias_unique(user, payload.alias)
         await self._enforce_plan_limits(user)
 
-        baileys_response = await self.baileys.create_session(payload.alias)
-        session_id = baileys_response.get("session_id") or baileys_response.get("sessionId")
-        if not session_id:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Resposta inesperada do serviço Baileys.",
+        fallback = False
+        session_id: str | None = None
+
+        try:
+            baileys_response = await self.baileys.create_session(payload.alias)
+            session_id = baileys_response.get("session_id") or baileys_response.get("sessionId")
+            if not session_id:
+                raise ValueError("Resposta do Baileys sem session_id.")
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "Falha ao criar sessão no Baileys para alias %s: %s. Aplicando fallback local.",
+                payload.alias,
+                exc,
             )
+            fallback = True
+            session_id = f"fallback-{uuid4()}"
 
         chip = Chip(
             user_id=user.id,
@@ -78,6 +91,7 @@ class ChipService:
                 "created_via": "api",
                 "user_agent": user_agent,
                 "ip": ip_address,
+                "baileys_fallback": fallback,
             },
         )
         self.session.add(chip)

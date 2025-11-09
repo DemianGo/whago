@@ -76,12 +76,22 @@ class Campaign(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     type: Mapped[CampaignType] = mapped_column(
-        Enum(CampaignType, name="campaign_type", native_enum=False),
+        Enum(
+            CampaignType,
+            name="campaign_type",
+            native_enum=False,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
         nullable=False,
         default=CampaignType.SIMPLE,
     )
     status: Mapped[CampaignStatus] = mapped_column(
-        Enum(CampaignStatus, name="campaign_status", native_enum=False),
+        Enum(
+            CampaignStatus,
+            name="campaign_status",
+            native_enum=False,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
         nullable=False,
         default=CampaignStatus.DRAFT,
     )
@@ -176,7 +186,12 @@ class CampaignMessage(Base):
     content: Mapped[str] = mapped_column(Text, nullable=False)
     variant: Mapped[Optional[str]] = mapped_column(String(10), nullable=True)
     status: Mapped[MessageStatus] = mapped_column(
-        Enum(MessageStatus, name="campaign_message_status", native_enum=False),
+        Enum(
+            MessageStatus,
+            name="campaign_message_status",
+            native_enum=False,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
         nullable=False,
         default=MessageStatus.PENDING,
     )

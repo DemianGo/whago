@@ -59,7 +59,12 @@ class Chip(Base):
     session_id: Mapped[str] = mapped_column(String(100), nullable=False)
     phone_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
     status: Mapped[ChipStatus] = mapped_column(
-        Enum(ChipStatus, name="chip_status", native_enum=False),
+        Enum(
+            ChipStatus,
+            name="chip_status",
+            native_enum=False,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
         nullable=False,
         default=ChipStatus.WAITING_QR,
     )
@@ -112,7 +117,12 @@ class ChipEvent(Base):
         nullable=False,
     )
     type: Mapped[ChipEventType] = mapped_column(
-        Enum(ChipEventType, name="chip_event_type", native_enum=False),
+        Enum(
+            ChipEventType,
+            name="chip_event_type",
+            native_enum=False,
+            values_callable=lambda enum_cls: [member.value for member in enum_cls],
+        ),
         nullable=False,
     )
     description: Mapped[str] = mapped_column(Text, nullable=False)

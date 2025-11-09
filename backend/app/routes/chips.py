@@ -40,7 +40,7 @@ def _context_from_request(request: Request) -> tuple[str | None, str | None]:
     return user_agent, client_ip
 
 
-@router.get("/", response_model=list[ChipResponse])
+@router.get("", response_model=list[ChipResponse])
 async def list_chips(
     current_user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_db),
@@ -50,7 +50,7 @@ async def list_chips(
 
 
 @router.post(
-    "/",
+    "",
     response_model=ChipResponse,
     status_code=status.HTTP_201_CREATED,
 )

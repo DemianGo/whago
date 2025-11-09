@@ -8,13 +8,12 @@ validando cenários de sucesso, falha e isolamento multi-tenant.
 from __future__ import annotations
 
 from typing import Any
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
-from sqlalchemy import select, update
+from sqlalchemy import select
 
-from app.models.chip import Chip, ChipStatus
 from app.models.user import User
 
 pytestmark = pytest.mark.asyncio
@@ -175,23 +174,26 @@ async def test_login_invalid_credentials_fails(base_url: str) -> None:
 async def test_login_inactive_user_is_forbidden(
     register_user,
     base_url: str,
-    db_session,
+    async_client_factory,
 ) -> None:
     """Usuários suspensos não podem autenticar (403)."""
 
     register_response, payload = await register_user()
     assert register_response.status_code == 201
 
-    user_result = await db_session.execute(
-        select(User).where(User.email == payload["email"].lower())
+    login_response = await _login(
+        base_url,
+        email=payload["email"],
+        password=payload["password"],
     )
-    user = user_result.scalar_one()
-    await db_session.execute(
-        update(User)
-        .where(User.id == user.id)
-        .values(is_active=False)
-    )
-    await db_session.commit()
+    assert login_response.status_code == 200
+    tokens = login_response.json()["tokens"]
+
+    async with async_client_factory(
+        headers={"Authorization": f"Bearer {tokens['access_token']}"}
+    ) as client:
+        suspend_response = await client.post("/api/v1/users/me/suspend")
+    assert suspend_response.status_code == 204
 
     login_response = await _login(
         base_url,
@@ -291,8 +293,6 @@ async def test_reset_password_invalid_token(register_user, base_url: str) -> Non
 
 async def test_multi_tenant_isolation_on_chips_endpoint(
     register_user,
-    get_user_by_email,
-    db_session,
     base_url: str,
 ) -> None:
     """Cada usuário deve enxergar apenas seus próprios chips."""
@@ -301,29 +301,24 @@ async def test_multi_tenant_isolation_on_chips_endpoint(
     response_b, payload_b = await register_user()
     assert response_a.status_code == response_b.status_code == 201
 
-    user_a = await get_user_by_email(payload_a["email"])
-    assert user_a is not None
-
-    chip = Chip(
-        user_id=user_a.id,
-        alias=f"chip-{uuid4().hex[:8]}",
-        session_id=f"session-{uuid4().hex}",
-        status=ChipStatus.WAITING_QR,
-        health_score=85,
-    )
-    db_session.add(chip)
-    await db_session.commit()
-
+    alias = f"chip-{uuid4().hex[:8]}"
     access_token_a = response_a.json()["tokens"]["access_token"]
     access_token_b = response_b.json()["tokens"]["access_token"]
+
+    async with httpx.AsyncClient(
+        base_url=base_url,
+        headers={"Authorization": f"Bearer {access_token_a}"},
+    ) as client:
+        chip_response = await client.post("/api/v1/chips", json={"alias": alias})
+    assert chip_response.status_code == 201
 
     response_user_a = await _get_with_token(base_url, "/api/v1/chips", access_token_a)
     response_user_b = await _get_with_token(base_url, "/api/v1/chips", access_token_b)
 
     assert response_user_a.status_code == 200
-    assert any(ch["alias"] == chip.alias for ch in response_user_a.json())
+    assert any(ch["alias"] == alias for ch in response_user_a.json())
 
     assert response_user_b.status_code == 200
-    assert all(ch["alias"] != chip.alias for ch in response_user_b.json())
+    assert all(ch["alias"] != alias for ch in response_user_b.json())
 
 

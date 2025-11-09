@@ -119,13 +119,18 @@ class UserBase(BaseModel):
 class UserCreate(UserBase):
     """Schema de criação de usuário (registro)."""
 
-    password: str = Field(min_length=8, max_length=128)
+    password: str = Field(max_length=128)
 
     @field_validator("password")
     @classmethod
     def validate_password_strength(cls, value: str) -> str:
-        """Garante complexidade mínima da senha."""
+        """Garante complexidade mínima da senha conforme PRD."""
 
+        if len(value) < 8:
+            raise ValueError(
+                "Senha deve possuir ao menos 8 caracteres, incluindo 1 maiúscula, "
+                "1 número e 1 caractere especial."
+            )
         if not PASSWORD_REGEX.match(value):
             raise ValueError(
                 "Senha deve possuir ao menos 8 caracteres, incluindo 1 maiúscula, "
@@ -155,7 +160,7 @@ class ResetPasswordRequest(BaseModel):
     """Schema para redefinição de senha."""
 
     token: str = Field(min_length=10, max_length=256)
-    new_password: str = Field(min_length=8, max_length=128)
+    new_password: str = Field(max_length=128)
 
     model_config = {"extra": "forbid"}
 
@@ -164,6 +169,11 @@ class ResetPasswordRequest(BaseModel):
     def validate_new_password(cls, value: str) -> str:
         """Aplica as mesmas regras de senha forte do registro."""
 
+        if len(value) < 8:
+            raise ValueError(
+                "Senha deve possuir ao menos 8 caracteres, incluindo 1 maiúscula, "
+                "1 número e 1 caractere especial."
+            )
         if not PASSWORD_REGEX.match(value):
             raise ValueError(
                 "Senha deve possuir ao menos 8 caracteres, incluindo 1 maiúscula, "
@@ -198,11 +208,39 @@ class TokenPair(BaseModel):
     refresh_token: str
     token_type: str = "bearer"
 
+    model_config = {"from_attributes": True}
+
 
 class AuthResponse(BaseModel):
     """Resposta agregada contendo usuário e tokens."""
 
     user: UserPublic
     tokens: TokenPair
+
+
+class UserUpdate(BaseModel):
+    """Schema para atualização de perfil do usuário."""
+
+    name: Optional[str] = Field(default=None, min_length=2, max_length=100)
+    phone: Optional[str] = None
+    company_name: Optional[str] = Field(default=None, max_length=150)
+    document: Optional[str] = None
+    plan_slug: Optional[str] = None
+
+    model_config = {"extra": "forbid"}
+
+    @field_validator("phone")
+    @classmethod
+    def validate_phone_optional(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        return UserBase.validate_phone(value)
+
+    @field_validator("document")
+    @classmethod
+    def validate_document_optional(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        return UserBase.validate_document(value)
 
 
