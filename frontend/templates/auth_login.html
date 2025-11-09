@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WHAGO | Entrar</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@fontsource/inter@5.0.16/latin.css"
+    />
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+    <link rel="stylesheet" href="/static/css/main.css" />
+    <script defer src="/static/js/app.js"></script>
+  </head>
+  <body class="bg-slate-900 text-slate-100">
+    <main
+      class="min-h-screen flex items-center justify-center px-6 py-16"
+      data-page="login"
+    >
+      <div
+        class="w-full max-w-md rounded-2xl bg-slate-800/60 backdrop-blur-xl border border-slate-700 shadow-2xl shadow-primary/20 p-10 space-y-8"
+      >
+        <div class="text-center space-y-3">
+          <div class="inline-flex items-center gap-2">
+            <span
+              class="inline-flex h-12 w-12 items-center justify-center rounded-full bg-primary/20 text-primary text-xl font-bold"
+              >W</span
+            >
+            <h1 class="text-2xl font-semibold tracking-tight">
+              WHAGO Plataforma
+            </h1>
+          </div>
+          <p class="text-slate-300">
+            Acesse sua conta e gerencie suas campanhas de WhatsApp.
+          </p>
+        </div>
+
+        <form id="login-form" class="space-y-6">
+          <div class="space-y-2">
+            <label
+              for="login-email"
+              class="text-sm font-medium text-slate-200"
+              >E-mail</label
+            >
+            <input
+              id="login-email"
+              name="email"
+              type="email"
+              required
+              autocomplete="email"
+              class="input"
+              placeholder="seu@email.com"
+            />
+          </div>
+          <div class="space-y-2">
+            <label
+              for="login-password"
+              class="text-sm font-medium text-slate-200"
+              >Senha</label
+            >
+            <input
+              id="login-password"
+              name="password"
+              type="password"
+              required
+              autocomplete="current-password"
+              class="input"
+              placeholder="••••••••"
+            />
+          </div>
+          <button type="submit" class="btn-primary w-full">Entrar</button>
+          <p id="login-feedback" class="text-sm text-center text-red-400"></p>
+        </form>
+
+        <div class="text-center text-sm text-slate-300">
+          Ainda não possui conta?
+          <a href="/register" class="text-primary hover:underline"
+            >Criar conta</a
+          >
+        </div>
+      </div>
+    </main>
+  </body>
+</html>
+

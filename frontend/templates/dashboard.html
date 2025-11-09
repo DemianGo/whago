@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}Dashboard | WHAGO{% endblock %}
+{% block content %}
+<section class="grid gap-6 lg:grid-cols-4" id="dashboard-summary">
+  <article class="card">
+    <h2 class="card__label">Créditos disponíveis</h2>
+    <p class="card__value" id="summary-credits">--</p>
+    <p class="card__hint">Saldo atualizado com compras e consumo</p>
+  </article>
+  <article class="card">
+    <h2 class="card__label">Mensagens hoje</h2>
+    <p class="card__value" id="summary-today">--</p>
+    <p class="card__hint" id="summary-today-variation">--</p>
+  </article>
+  <article class="card">
+    <h2 class="card__label">Mensagens no mês</h2>
+    <p class="card__value" id="summary-month">--</p>
+    <p class="card__hint" id="summary-month-variation">--</p>
+  </article>
+  <article class="card">
+    <h2 class="card__label">Taxa de sucesso</h2>
+    <p class="card__value" id="summary-success">--%</p>
+    <p class="card__hint">Entregas + leituras / total enviado</p>
+  </article>
+</section>
+
+<section class="mt-10 grid gap-6 lg:grid-cols-3">
+  <div class="card lg:col-span-2">
+    <div class="card__header">
+      <h2 class="card__title">Histórico de mensagens (30 dias)</h2>
+      <p class="card__subtitle">Enviadas, entregues, lidas e falhas</p>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="table-auto w-full text-sm" id="trend-table">
+        <thead>
+          <tr class="text-left text-slate-500">
+            <th class="py-2">Data</th>
+            <th class="py-2">Enviadas</th>
+            <th class="py-2">Entregues</th>
+            <th class="py-2">Lidas</th>
+            <th class="py-2">Falhas</th>
+          </tr>
+        </thead>
+        <tbody id="trend-body" class="divide-y divide-slate-200"></tbody>
+      </table>
+    </div>
+  </div>
+  <div class="card">
+    <div class="card__header">
+      <h2 class="card__title">Atividade recente</h2>
+      <p class="card__subtitle">Últimas ações do time</p>
+    </div>
+    <ul class="space-y-4 text-sm" id="activity-feed">
+      <li class="text-slate-500">Sem eventos registrados.</li>
+    </ul>
+  </div>
+</section>
+{% endblock %}

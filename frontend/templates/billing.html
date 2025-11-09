@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+{% block title %}Billing & Créditos | WHAGO{% endblock %}
+{% block content %}
+<section class="grid gap-6 lg:grid-cols-2">
+  <article class="card" id="subscription-card">
+    <div class="card__header">
+      <h2 class="card__title">Assinatura atual</h2>
+      <p class="card__subtitle">Resumo do plano, vigência e tentativas de cobrança.</p>
+    </div>
+    <dl class="grid gap-4 text-sm md:grid-cols-2">
+      <div>
+        <dt class="text-slate-500">Plano ativo</dt>
+        <dd class="text-lg font-semibold text-slate-900" id="billing-current-plan">--</dd>
+      </div>
+      <div>
+        <dt class="text-slate-500">Próxima renovação</dt>
+        <dd class="text-lg font-semibold text-slate-900" id="billing-renewal">--</dd>
+      </div>
+      <div>
+        <dt class="text-slate-500">Downgrade agendado</dt>
+        <dd class="text-lg font-semibold text-slate-900" id="billing-pending-plan">--</dd>
+      </div>
+      <div>
+        <dt class="text-slate-500">Falhas de pagamento</dt>
+        <dd class="text-lg font-semibold text-slate-900" id="billing-failures">0</dd>
+      </div>
+    </dl>
+    <button id="cancel-downgrade" class="btn-secondary mt-4 hidden">Cancelar downgrade agendado</button>
+  </article>
+
+  <article class="card">
+    <div class="card__header">
+      <h2 class="card__title">Alterar plano</h2>
+      <p class="card__subtitle">Realize upgrade imediato ou agende downgrade para o próximo ciclo.</p>
+    </div>
+    <form id="plan-change-form" class="space-y-4">
+      <div class="space-y-2">
+        <label for="plan-select" class="text-sm font-medium text-slate-600">Selecionar plano</label>
+        <select id="plan-select" name="plan_slug" class="input">
+          <option value="free">Free</option>
+          <option value="business">Business</option>
+          <option value="enterprise">Enterprise</option>
+        </select>
+      </div>
+      <div class="space-y-2">
+        <label class="text-sm font-medium text-slate-600">Método de pagamento</label>
+        <select id="plan-payment-method" class="input">
+          <option value="card">Cartão de crédito</option>
+          <option value="pix">PIX</option>
+          <option value="boleto">Boleto</option>
+        </select>
+      </div>
+      <button type="submit" class="btn-primary w-full">Confirmar alteração</button>
+      <p id="plan-change-feedback" class="text-sm text-slate-500"></p>
+    </form>
+  </article>
+</section>
+
+<section class="mt-8 grid gap-6 lg:grid-cols-2">
+  <article class="card">
+    <div class="card__header">
+      <h2 class="card__title">Comprar créditos avulsos</h2>
+      <p class="card__subtitle">Pacotes pré-configurados conforme política comercial.</p>
+    </div>
+    <form id="credit-purchase-form" class="space-y-4">
+      <div class="space-y-2">
+        <label for="credit-package" class="text-sm font-medium text-slate-600">Pacote</label>
+        <select id="credit-package" class="input">
+          <option value="credits_1000">1.000 créditos — R$ 30,00</option>
+          <option value="credits_5000">5.000 créditos — R$ 120,00</option>
+          <option value="credits_10000">10.000 créditos — R$ 200,00</option>
+          <option value="credits_50000">50.000 créditos — R$ 750,00</option>
+        </select>
+      </div>
+      <div class="space-y-2">
+        <label for="credit-method" class="text-sm font-medium text-slate-600">Pagamento</label>
+        <select id="credit-method" class="input">
+          <option value="pix">PIX</option>
+          <option value="card">Cartão de crédito</option>
+          <option value="boleto">Boleto</option>
+        </select>
+      </div>
+      <button type="submit" class="btn-primary w-full">Comprar créditos</button>
+      <p id="credit-purchase-feedback" class="text-sm text-slate-500"></p>
+    </form>
+  </article>
+
+  <article class="card">
+    <div class="card__header">
+      <h2 class="card__title">Histórico econômico</h2>
+      <p class="card__subtitle">Últimas transações e lançamentos no ledger de créditos.</p>
+    </div>
+    <div class="space-y-4 text-sm">
+      <div>
+        <h3 class="font-medium text-slate-700">Transações recentes</h3>
+        <ul id="transaction-list" class="mt-2 space-y-2 text-slate-600">
+          <li>Sem registros.</li>
+        </ul>
+      </div>
+      <div>
+        <h3 class="font-medium text-slate-700">Ledger de créditos</h3>
+        <ul id="credit-history" class="mt-2 space-y-2 text-slate-600">
+          <li>Sem movimentações.</li>
+        </ul>
+      </div>
+    </div>
+  </article>
+</section>
+{% endblock %}

@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{% block title %}WHAGO Plataforma{% endblock %}</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@fontsource/inter@5.0.16/latin.css"
+    />
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+    <link rel="stylesheet" href="/static/css/main.css" />
+    <script defer src="/static/js/app.js"></script>
+  </head>
+  <body class="bg-slate-100 font-inter text-slate-800">
+    <div class="flex min-h-screen">
+      <aside class="sidebar">
+        <div class="sidebar__brand">
+          <span class="sidebar__logo">W</span>
+          <div>
+            <p class="text-sm text-slate-400 uppercase tracking-widest">WHAGO</p>
+            <p class="text-lg font-semibold text-white">HQ de Envios</p>
+          </div>
+        </div>
+        <nav class="sidebar__nav">
+          <a href="/dashboard" class="sidebar__link" data-nav="dashboard">📊 Dashboard</a>
+          <a href="/chips" class="sidebar__link" data-nav="chips">📱 Chips</a>
+          <a href="/campaigns" class="sidebar__link" data-nav="campaigns">📢 Campanhas</a>
+          <a href="/billing" class="sidebar__link" data-nav="billing">💳 Billing & Créditos</a>
+          <a href="/settings" class="sidebar__link" data-nav="settings">⚙️ Configurações</a>
+        </nav>
+        <div class="sidebar__footer">
+          <div class="text-sm text-slate-400" id="sidebar-plan">Plano Free</div>
+          <div class="text-xl font-semibold text-white" id="sidebar-credits">100 créditos</div>
+          <button id="logout-btn" class="sidebar__logout">Sair</button>
+        </div>
+      </aside>
+
+      <div class="flex flex-1 flex-col">
+        <header class="topbar">
+          <div class="space-y-1">
+            <h1 class="text-xl font-semibold text-slate-900" id="topbar-title">Painel WHAGO</h1>
+            <p class="text-sm text-slate-500">Centralize operações de WhatsApp marketing em um só lugar.</p>
+          </div>
+          <div class="flex items-center gap-4">
+            <div class="text-right">
+              <p class="text-sm font-medium text-slate-700" id="user-name">Usuário</p>
+              <p class="text-xs text-slate-500" id="user-email">email@empresa.com</p>
+            </div>
+            <div class="flex h-12 w-12 items-center justify-center rounded-full bg-primary/20 text-primary text-lg font-semibold">
+              <span id="user-initial">U</span>
+            </div>
+          </div>
+        </header>
+
+        <main class="flex-1 overflow-y-auto px-8 py-10" data-page="{{ page_id }}">
+          {% block content %}{% endblock %}
+        </main>
+      </div>
+    </div>
+  </body>
+</html>

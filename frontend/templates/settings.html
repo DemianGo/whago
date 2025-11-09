@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}Configurações | WHAGO{% endblock %}
+{% block content %}
+<section class="grid gap-6 lg:grid-cols-2">
+  <article class="card">
+    <div class="card__header">
+      <h2 class="card__title">Perfil</h2>
+      <p class="card__subtitle">Visualize e atualize dados básicos da conta.</p>
+    </div>
+    <form id="profile-form" class="space-y-4">
+      <div class="space-y-2">
+        <label for="profile-name" class="text-sm font-medium text-slate-600">Nome completo</label>
+        <input id="profile-name" name="name" type="text" class="input" required />
+      </div>
+      <div class="space-y-2">
+        <label for="profile-phone" class="text-sm font-medium text-slate-600">Telefone</label>
+        <input id="profile-phone" name="phone" type="tel" class="input" required />
+      </div>
+      <div class="space-y-2">
+        <label for="profile-company" class="text-sm font-medium text-slate-600">Empresa</label>
+        <input id="profile-company" name="company_name" type="text" class="input" />
+      </div>
+      <div class="space-y-2">
+        <label for="profile-document" class="text-sm font-medium text-slate-600">CPF/CNPJ</label>
+        <input id="profile-document" name="document" type="text" class="input" />
+      </div>
+      <button type="submit" class="btn-primary w-full">Salvar alterações</button>
+      <p id="profile-feedback" class="text-sm text-slate-500"></p>
+    </form>
+  </article>
+
+  <article class="card">
+    <div class="card__header">
+      <h2 class="card__title">Segurança</h2>
+      <p class="card__subtitle">Troque a senha de acesso ao painel WHAGO.</p>
+    </div>
+    <form id="password-form" class="space-y-4">
+      <div class="space-y-2">
+        <label for="old-password" class="text-sm font-medium text-slate-600">Senha atual</label>
+        <input id="old-password" type="password" class="input" required />
+      </div>
+      <div class="space-y-2">
+        <label for="new-password" class="text-sm font-medium text-slate-600">Nova senha</label>
+        <input id="new-password" type="password" class="input" required />
+        <p class="text-xs text-slate-500">Siga a mesma política de segurança aplicada no cadastro.</p>
+      </div>
+      <button type="submit" class="btn-secondary w-full">Atualizar senha</button>
+      <p id="password-feedback" class="text-sm text-slate-500"></p>
+    </form>
+  </article>
+</section>
+{% endblock %}

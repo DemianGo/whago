@@ -58,7 +58,12 @@ class Plan(Base):
         onupdate=func.now(),
     )
 
-    users: Mapped[List["User"]] = relationship(back_populates="plan", cascade="all,delete")
+    users: Mapped[List["User"]] = relationship(
+        "User",
+        back_populates="plan",
+        cascade="all,delete",
+        foreign_keys="User.plan_id",
+    )
 
 
 __all__ = ("Plan", "PlanTier")

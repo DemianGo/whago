@@ -18,7 +18,7 @@ from sqlalchemy import (
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from typing import List
@@ -58,7 +58,20 @@ class User(Base):
         ForeignKey("plans.id", ondelete="SET NULL"),
         nullable=True,
     )
-    plan: Mapped[Plan | None] = relationship(back_populates="users")
+    pending_plan_id: Mapped[int | None] = mapped_column(
+        ForeignKey("plans.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    plan: Mapped[Plan | None] = relationship(
+        back_populates="users",
+        foreign_keys=[plan_id],
+    )
+    pending_plan: Mapped[Plan | None] = relationship(
+        foreign_keys=[pending_plan_id],
+    )
+    default_payment_method: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    billing_customer_reference: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    billing_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     tokens: Mapped[List["UserToken"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
@@ -90,6 +103,15 @@ class User(Base):
         onupdate=func.now(),
     )
     last_login_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    subscription_renewal_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    failed_payment_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+    billing_suspension_started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
 

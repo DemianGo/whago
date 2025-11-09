@@ -23,6 +23,7 @@ from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from ..database import Base
+from .invoice import Invoice, PaymentAttempt  # noqa: F401
 
 if TYPE_CHECKING:
     from .plan import Plan
@@ -108,10 +109,20 @@ class Transaction(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    due_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     user: Mapped["User"] = relationship(back_populates="transactions")
     plan: Mapped[Optional["Plan"]] = relationship()
     credit_entries: Mapped[list["CreditLedger"]] = relationship(
+        back_populates="transaction",
+        cascade="all, delete-orphan",
+    )
+    invoice: Mapped[Invoice | None] = relationship(back_populates="transaction", uselist=False)
+    payment_attempts: Mapped[list[PaymentAttempt]] = relationship(
         back_populates="transaction",
         cascade="all, delete-orphan",
     )

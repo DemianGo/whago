@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Campanhas | WHAGO{% endblock %}
+{% block content %}
+<section class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+  <div>
+    <h2 class="page-title">Campanhas</h2>
+    <p class="page-subtitle">Monitore rascunhos, campanhas em andamento e resultados finais.</p>
+  </div>
+  <a href="/campaigns" id="create-campaign" class="btn-primary sm:w-auto">Nova campanha</a>
+</section>
+
+<section class="mt-8 card">
+  <div class="overflow-x-auto">
+    <table class="table-auto w-full text-sm" id="campaign-table">
+      <thead>
+        <tr class="text-left text-slate-500">
+          <th class="py-2">Nome</th>
+          <th class="py-2">Status</th>
+          <th class="py-2">Progresso</th>
+          <th class="py-2">Sucesso</th>
+          <th class="py-2">Criada em</th>
+          <th class="py-2">Ações</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-200"></tbody>
+    </table>
+  </div>
+</section>
+
+<section class="mt-8 grid gap-6 lg:grid-cols-2" id="campaign-details"></section>
+{% endblock %}

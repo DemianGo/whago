@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Chips | WHAGO{% endblock %}
+{% block content %}
+<section class="flex items-center justify-between">
+  <div>
+    <h2 class="page-title">Chips conectados</h2>
+    <p class="page-subtitle">
+      Gerencie sessões Baileys, verifique status em tempo real e acompanhe eventos críticos.
+    </p>
+  </div>
+  <button id="refresh-chips" class="btn-secondary">Atualizar lista</button>
+</section>
+
+<section class="mt-8 card">
+  <div class="overflow-x-auto">
+    <table class="table-auto w-full text-sm" id="chip-table">
+      <thead>
+        <tr class="text-left text-slate-500">
+          <th class="py-2">Alias</th>
+          <th class="py-2">Status</th>
+          <th class="py-2">Pontuação</th>
+          <th class="py-2">Criado em</th>
+          <th class="py-2">Última atividade</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-200"></tbody>
+    </table>
+  </div>
+</section>
+
+<section class="mt-8 grid gap-6 lg:grid-cols-2" id="chip-events"></section>
+{% endblock %}

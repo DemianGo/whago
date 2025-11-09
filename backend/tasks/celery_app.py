@@ -31,11 +31,15 @@ celery_app.conf.update(
     timezone="UTC",
     enable_utc=True,
     result_expires=3600,
+    beat_schedule={
+        "process-subscription-billing-hourly": {
+            "task": "billing.process_subscription_cycle",
+            "schedule": 3600.0,
+        }
+    },
 )
 
-celery_app.autodiscover_tasks(
-    packages=("tasks.campaign_tasks",)
-)
+celery_app.autodiscover_tasks(packages=("tasks.campaign_tasks", "tasks.billing_tasks"))
 
 
 __all__ = ("celery_app",)

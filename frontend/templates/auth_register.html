@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>WHAGO | Criar conta</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@fontsource/inter@5.0.16/latin.css"
+    />
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+    <link rel="stylesheet" href="/static/css/main.css" />
+    <script defer src="/static/js/app.js"></script>
+  </head>
+  <body class="bg-slate-900 text-slate-100">
+    <main
+      class="min-h-screen flex items-center justify-center px-6 py-16"
+      data-page="register"
+    >
+      <div
+        class="w-full max-w-2xl rounded-2xl bg-slate-800/60 backdrop-blur-xl border border-slate-700 shadow-2xl shadow-primary/20 p-10 space-y-8"
+      >
+        <div class="text-center space-y-3">
+          <div class="inline-flex items-center gap-2">
+            <span
+              class="inline-flex h-12 w-12 items-center justify-center rounded-full bg-primary/20 text-primary text-xl font-bold"
+              >W</span
+            >
+            <h1 class="text-2xl font-semibold tracking-tight">
+              Criar conta WHAGO
+            </h1>
+          </div>
+          <p class="text-slate-300">
+            Comece agora a gerenciar suas campanhas multicanal pelo WhatsApp.
+          </p>
+        </div>
+
+        <form id="register-form" class="grid grid-cols-1 gap-6 md:grid-cols-2">
+          <div class="space-y-2 md:col-span-2">
+            <label for="reg-name" class="text-sm font-medium text-slate-200"
+              >Nome completo</label
+            >
+            <input
+              id="reg-name"
+              name="name"
+              type="text"
+              required
+              minlength="2"
+              maxlength="100"
+              class="input"
+              placeholder="Maria Lima"
+            />
+          </div>
+
+          <div class="space-y-2">
+            <label for="reg-email" class="text-sm font-medium text-slate-200"
+              >E-mail profissional</label
+            >
+            <input
+              id="reg-email"
+              name="email"
+              type="email"
+              required
+              class="input"
+              placeholder="contato@empresa.com"
+            />
+          </div>
+
+          <div class="space-y-2">
+            <label for="reg-phone" class="text-sm font-medium text-slate-200"
+              >Telefone</label
+            >
+            <input
+              id="reg-phone"
+              name="phone"
+              type="tel"
+              required
+              class="input"
+              placeholder="+5511999999999"
+            />
+          </div>
+
+          <div class="space-y-2">
+            <label
+              for="reg-password"
+              class="text-sm font-medium text-slate-200"
+              >Senha</label
+            >
+            <input
+              id="reg-password"
+              name="password"
+              type="password"
+              required
+              minlength="8"
+              class="input"
+              placeholder="Senha forte"
+            />
+            <p class="text-xs text-slate-400">
+              Mínimo 8 caracteres com pelo menos uma letra maiúscula, um número e
+              um caractere especial.
+            </p>
+          </div>
+
+          <div class="space-y-2">
+            <label
+              for="reg-company"
+              class="text-sm font-medium text-slate-200"
+              >Empresa</label
+            >
+            <input
+              id="reg-company"
+              name="company_name"
+              type="text"
+              class="input"
+              placeholder="Minha Empresa LTDA"
+            />
+          </div>
+
+          <div class="space-y-2">
+            <label
+              for="reg-document"
+              class="text-sm font-medium text-slate-200"
+              >CPF/CNPJ</label
+            >
+            <input
+              id="reg-document"
+              name="document"
+              type="text"
+              class="input"
+              placeholder="00000000000"
+            />
+          </div>
+
+          <div class="space-y-2">
+            <label
+              for="reg-plan"
+              class="text-sm font-medium text-slate-200"
+              >Plano desejado</label
+            >
+            <select id="reg-plan" name="plan_slug" class="input">
+              <option value="free" selected>Free (500 mensagens/mês)</option>
+              <option value="business">Business (5.000 mensagens/mês)</option>
+              <option value="enterprise">Enterprise (20.000+)</option>
+            </select>
+          </div>
+
+          <div class="md:col-span-2">
+            <label class="inline-flex items-start gap-3 text-sm text-slate-300">
+              <input
+                type="checkbox"
+                id="reg-terms"
+                class="mt-1 rounded border-slate-600"
+                required
+              />
+              <span>
+                Concordo com os
+                <a href="#" class="text-primary hover:underline">termos de uso</a>
+                e autorizo o processamento dos meus dados conforme a LGPD.
+              </span>
+            </label>
+          </div>
+
+          <button type="submit" class="btn-primary md:col-span-2">
+            Criar conta
+          </button>
+        </form>
+
+        <p id="register-feedback" class="text-sm text-center text-red-400"></p>
+
+        <div class="text-center text-sm text-slate-300">
+          Já possui conta?
+          <a href="/login" class="text-primary hover:underline">Entrar</a>
+        </div>
+      </div>
+    </main>
+  </body>
+</html>

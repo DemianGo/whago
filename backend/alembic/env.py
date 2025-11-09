@@ -20,8 +20,12 @@ PROJECT_ROOT = BASE_DIR.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from backend.app.database import Base  # noqa: E402
-from backend.app.config import settings  # noqa: E402
+try:  # noqa: WPS501
+    from backend.app.database import Base  # type: ignore[attr-defined]  # noqa: E402
+    from backend.app.config import settings  # type: ignore[attr-defined]  # noqa: E402
+except ModuleNotFoundError:  # pragma: no cover
+    from app.database import Base  # type: ignore[attr-defined]  # noqa: E402
+    from app.config import settings  # type: ignore[attr-defined]  # noqa: E402
 
 config = context.config
 

@@ -7,14 +7,16 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from .config import settings
 from .core.redis import close_redis
 from .database import init_db, wait_for_db_readiness
-from .routes import auth, chips, campaigns, plans, users, dashboard
+from .routes import auth, chips, campaigns, plans, users, dashboard, billing, frontend
 
 logger = logging.getLogger("whago.app")
 
@@ -53,6 +55,12 @@ def create_application() -> FastAPI:
     app.include_router(plans.router)
     app.include_router(users.router)
     app.include_router(dashboard.router)
+    app.include_router(billing.router)
+    app.include_router(frontend.router)
+
+    static_dir = Path(__file__).resolve().parents[2] / "frontend" / "static"
+    if static_dir.exists():
+        app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 
     @app.get("/health")
     async def health_check() -> dict[str, str]:
