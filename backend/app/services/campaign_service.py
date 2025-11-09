@@ -31,6 +31,8 @@ from ..models.campaign import (
 from ..models.chip import Chip
 from ..models.plan import PlanTier
 from ..models.user import User
+from .notification_service import NotificationService, NotificationType
+from .audit_service import AuditService
 from ..schemas.campaign import (
     CampaignActionResponse,
     CampaignCreate,
@@ -92,6 +94,26 @@ class CampaignService:
             scheduled_for=data.scheduled_for,
         )
         self.session.add(campaign)
+        await self.session.flush()
+        notifier = NotificationService(self.session)
+        await notifier.create(
+            user_id=db_user.id,
+            title="Campanha criada",
+            message=f"{campaign.name} foi criada com status {campaign.status.value}.",
+            type_=NotificationType.SUCCESS,
+            extra_data={"campaign_id": str(campaign.id)},
+            auto_commit=False,
+        )
+        audit = AuditService(self.session)
+        await audit.record(
+            user_id=db_user.id,
+            action="campaign.create",
+            entity_type="campaign",
+            entity_id=str(campaign.id),
+            description="Campanha criada pelo usuário.",
+            extra_data={"status": campaign.status.value},
+            auto_commit=False,
+        )
         await self.session.commit()
         await self.session.refresh(campaign)
         return CampaignDetail.model_validate(campaign)
@@ -263,6 +285,8 @@ class CampaignService:
                 detail="Não é possível iniciar uma campanha encerrada.",
             )
 
+        audit = AuditService(self.session)
+
         result_contacts = await self.session.execute(
             select(func.count(CampaignContact.id)).where(CampaignContact.campaign_id == campaign.id)
         )
@@ -298,6 +322,15 @@ class CampaignService:
 
         if campaign.status == CampaignStatus.PAUSED:
             campaign.status = CampaignStatus.RUNNING
+            await audit.record(
+                user_id=user.id,
+                action="campaign.resume",
+                entity_type="campaign",
+                entity_id=str(campaign.id),
+                description="Campanha retomada após pausa.",
+                extra_data=None,
+                auto_commit=False,
+            )
             await self.session.commit()
             resume_campaign_dispatch.delay(str(campaign.id))
             await self._publish_status(campaign.id, CampaignStatus.RUNNING, resumed_at=now)
@@ -311,6 +344,15 @@ class CampaignService:
             if eta > now:
                 campaign.status = CampaignStatus.SCHEDULED
                 campaign.started_at = None
+                await audit.record(
+                    user_id=user.id,
+                    action="campaign.schedule",
+                    entity_type="campaign",
+                    entity_id=str(campaign.id),
+                    description="Campanha agendada para execução futura.",
+                    extra_data={"scheduled_for": eta.isoformat()},
+                    auto_commit=False,
+                )
                 await self.session.commit()
                 start_campaign_dispatch.apply_async((str(campaign.id),), eta=eta)
                 await self._publish_status(
@@ -326,6 +368,15 @@ class CampaignService:
 
         campaign.status = CampaignStatus.RUNNING
         campaign.started_at = now
+        await audit.record(
+            user_id=user.id,
+            action="campaign.start",
+            entity_type="campaign",
+            entity_id=str(campaign.id),
+            description="Campanha iniciada para envio imediato.",
+            extra_data={"remaining_contacts": remaining_to_send},
+            auto_commit=False,
+        )
         await self.session.commit()
         start_campaign_dispatch.delay(str(campaign.id))
         await self._publish_status(campaign.id, CampaignStatus.RUNNING, started_at=now)
@@ -341,6 +392,16 @@ class CampaignService:
             )
 
         campaign.status = CampaignStatus.PAUSED
+        audit = AuditService(self.session)
+        await audit.record(
+            user_id=user.id,
+            action="campaign.pause",
+            entity_type="campaign",
+            entity_id=str(campaign.id),
+            description="Campanha pausada pelo usuário.",
+            extra_data=None,
+            auto_commit=False,
+        )
         await self.session.commit()
         await self._publish_status(campaign.id, CampaignStatus.PAUSED, paused_at=datetime.now(timezone.utc))
         await self.session.refresh(campaign)
@@ -372,6 +433,16 @@ class CampaignService:
         campaign.failed_count += affected
         campaign.status = CampaignStatus.CANCELLED
         campaign.completed_at = now
+        audit = AuditService(self.session)
+        await audit.record(
+            user_id=user.id,
+            action="campaign.cancel",
+            entity_type="campaign",
+            entity_id=str(campaign.id),
+            description="Campanha cancelada pelo usuário.",
+            extra_data={"messages_marked_failed": affected},
+            auto_commit=False,
+        )
         await self.session.commit()
         await self._publish_status(campaign.id, CampaignStatus.CANCELLED, cancelled_at=now)
         await self.session.refresh(campaign)

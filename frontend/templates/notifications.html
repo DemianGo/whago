@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Notificações | WHAGO{% endblock %}
+{% block content %}
+<section class="space-y-6">
+  <header class="space-y-1">
+    <h2 class="page-title">Notificações</h2>
+    <p class="page-subtitle">Acompanhe alertas de campanhas, billing, chips e sistema em tempo real.</p>
+  </header>
+
+  <article class="card">
+    <div class="flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center gap-3 text-sm text-slate-500">
+        <span class="inline-flex h-3 w-3 rounded-full bg-emerald-400"></span>
+        <span id="notifications-page-counter">0 notificações</span>
+      </div>
+      <div class="flex items-center gap-3">
+        <label class="flex items-center gap-2 text-sm text-slate-500">
+          <input id="notifications-filter-unread" type="checkbox" class="rounded border-slate-300" />
+          Mostrar somente não lidas
+        </label>
+        <button id="notifications-page-mark-all" class="btn-secondary" type="button">Marcar todas como lidas</button>
+      </div>
+    </div>
+
+    <div id="notifications-page-empty" class="mt-6 hidden rounded-xl bg-slate-100 p-6 text-center text-sm text-slate-500">
+      Nenhuma notificação encontrada até o momento.
+    </div>
+
+    <ul id="notifications-page-list" class="mt-6 space-y-4"></ul>
+  </article>
+</section>
+{% endblock %}

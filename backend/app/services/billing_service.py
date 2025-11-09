@@ -34,6 +34,7 @@ from ..schemas.billing import (
     TransactionResponse,
 )
 from .payment_gateway import PaymentGatewayClient, PaymentGatewayError
+from .audit_service import AuditService
 
 CREDIT_PACKAGES = {
     "credits_1000": {"credits": 1000, "price": Decimal("30.00")},
@@ -82,6 +83,7 @@ class BillingService:
         await self.session.refresh(user, attribute_names=["plan"])
         now = datetime.now(timezone.utc)
         current_plan = user.plan
+        audit = AuditService(self.session)
 
         if current_plan and current_plan.id == target_plan.id:
             pending_slug = user.pending_plan.slug if user.pending_plan_id else None
@@ -130,6 +132,19 @@ class BillingService:
             self.session.add(transaction)
             await self.session.flush()
             await self._issue_invoice(user, transaction, status=InvoiceStatus.PAID)
+            await audit.record(
+                user_id=user.id,
+                action="billing.plan_change",
+                entity_type="plan",
+                entity_id=target_plan.slug,
+                description="Plano atualizado pelo usuário.",
+                extra_data={
+                    "previous_plan": current_plan.slug if current_plan else None,
+                    "new_plan": target_plan.slug,
+                    "charged": str(amount_to_charge),
+                },
+                auto_commit=False,
+            )
             await self.session.commit()
 
             return PlanChangeResponse(
@@ -142,6 +157,15 @@ class BillingService:
         # Downgrade: agenda para o próximo ciclo
         user.pending_plan_id = target_plan.id
         effective_at = user.subscription_renewal_at or (now + timedelta(days=SUBSCRIPTION_CYCLE_DAYS))
+        await audit.record(
+            user_id=user.id,
+            action="billing.downgrade_scheduled",
+            entity_type="plan",
+            entity_id=target_plan.slug,
+            description="Downgrade agendado para o próximo ciclo.",
+            extra_data={"effective_at": effective_at.isoformat()},
+            auto_commit=False,
+        )
         await self.session.commit()
 
         return PlanChangeResponse(
@@ -160,6 +184,16 @@ class BillingService:
             )
 
         user.pending_plan_id = None
+        audit = AuditService(self.session)
+        await audit.record(
+            user_id=user.id,
+            action="billing.downgrade_cancelled",
+            entity_type="plan",
+            entity_id=None,
+            description="Usuário cancelou o downgrade agendado.",
+            extra_data=None,
+            auto_commit=False,
+        )
         await self.session.commit()
         return CancelDowngradeResponse(status="cancelled", message="Downgrade agendado foi cancelado.")
 
@@ -207,6 +241,20 @@ class BillingService:
         )
         self.session.add(ledger_entry)
         await self._issue_invoice(user, transaction, status=InvoiceStatus.PAID)
+        audit = AuditService(self.session)
+        await audit.record(
+            user_id=user.id,
+            action="billing.credit_purchase",
+            entity_type="transaction",
+            entity_id=str(transaction.id),
+            description="Compra de créditos realizada.",
+            extra_data={
+                "package": payload.package_code,
+                "payment_method": payload.payment_method,
+                "amount": str(amount),
+            },
+            auto_commit=False,
+        )
         await self.session.commit()
 
         return CreditPurchaseResponse(

@@ -29,6 +29,8 @@ from .transaction import Transaction
 from .credit import CreditLedger
 from .chip import Chip
 from .campaign import Campaign
+from .notification import Notification
+from .audit_log import AuditLog
 
 
 class User(Base):
@@ -91,6 +93,16 @@ class User(Base):
     campaigns: Mapped[List[Campaign]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
+    )
+    notifications: Mapped[List[Notification]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by="Notification.created_at.desc()",
+    )
+    audit_logs: Mapped[List[AuditLog]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by="AuditLog.created_at.desc()",
     )
 
     created_at: Mapped[datetime] = mapped_column(

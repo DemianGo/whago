@@ -9,6 +9,10 @@ from . import (
     dashboard,
     billing,
     frontend,
+    reports,
+    notifications,
+    audit,
+    messages,
 )
 
 __all__ = (
@@ -20,5 +24,9 @@ __all__ = (
     "dashboard",
     "billing",
     "frontend",
+    "reports",
+    "notifications",
+    "audit",
+    "messages",
 )
 

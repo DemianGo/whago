@@ -20,14 +20,18 @@ if str(ROOT_DIR) not in sys.path:
 import httpx
 import pytest
 import pytest_asyncio
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, create_engine
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import selectinload, Session
+from sqlalchemy.engine import make_url
 
 from app.database import AsyncSessionLocal
+from app.config import settings
 from app.models.user import User
 
 BASE_URL = "http://localhost:8000"
+
+SYNC_ENGINE = create_engine(make_url(settings.database_url).set(drivername="postgresql+psycopg2", host="postgres"))
 
 
 @pytest.fixture(scope="session")
@@ -86,18 +90,17 @@ def register_user(
 
 
 @pytest_asyncio.fixture
-async def get_user_by_email(
-    db_session: AsyncSession,
-) -> Callable[[str], Awaitable[User | None]]:
+async def get_user_by_email() -> Callable[[str], Awaitable[User | None]]:
     """Retorna callable para buscar usuários diretamente no banco."""
 
     async def _get(email: str) -> User | None:
-        result = await db_session.execute(
-            select(User)
-            .options(selectinload(User.plan))
-            .where(User.email == email.lower())
-        )
-        return result.scalar_one_or_none()
+        with Session(SYNC_ENGINE) as session:
+            result = session.execute(
+                select(User)
+                .options(selectinload(User.plan))
+                .where(User.email == email.lower())
+            )
+            return result.scalar_one_or_none()
 
     return _get
 

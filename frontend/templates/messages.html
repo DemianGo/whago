@@ -1,0 +1,55 @@
+{% extends "base.html" %}
+{% block title %}Mensagens | WHAGO{% endblock %}
+{% block content %}
+<section class="space-y-6">
+  <header class="space-y-1">
+    <h2 class="page-title">Mensagens</h2>
+    <p class="page-subtitle">Visualize todas as mensagens enviadas, seus status e chips utilizados.</p>
+  </header>
+
+  <article class="card space-y-4">
+    <div class="flex flex-wrap items-end gap-4">
+      <div>
+        <label for="messages-filter-status" class="card__label">Status</label>
+        <select id="messages-filter-status" class="input">
+          <option value="">Todos</option>
+          <option value="sent">Enviada</option>
+          <option value="delivered">Entregue</option>
+          <option value="read">Lida</option>
+          <option value="failed">Falhou</option>
+        </select>
+      </div>
+      <div>
+        <label for="messages-filter-campaign" class="card__label">ID da Campanha</label>
+        <input id="messages-filter-campaign" class="input" placeholder="UUID opcional" />
+      </div>
+      <div class="flex-1 min-w-[220px]">
+        <label for="messages-filter-recipient" class="card__label">Telefone</label>
+        <input id="messages-filter-recipient" class="input" placeholder="Buscar por número" />
+      </div>
+      <button id="messages-filter-apply" class="btn-primary" type="button">Aplicar filtros</button>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="w-full table-auto text-sm">
+        <thead class="text-left text-slate-500">
+          <tr>
+            <th class="py-2">Mensagem</th>
+            <th class="py-2">Campanha</th>
+            <th class="py-2">Chip</th>
+            <th class="py-2">Status</th>
+            <th class="py-2">Enviada</th>
+            <th class="py-2">Entregue</th>
+            <th class="py-2">Lida</th>
+          </tr>
+        </thead>
+        <tbody id="messages-table-body" class="divide-y divide-slate-100"></tbody>
+      </table>
+    </div>
+
+    <div id="messages-empty" class="hidden rounded-xl bg-slate-100 p-6 text-center text-sm text-slate-500">
+      Nenhuma mensagem encontrada com os filtros atuais.
+    </div>
+  </article>
+</section>
+{% endblock %}

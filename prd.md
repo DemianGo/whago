@@ -1362,6 +1362,7 @@ Somos da {{empresa}} e temos uma proposta especial para você!
    - [x] Configurar fila de envio (Celery/worker) e WebSocket de acompanhamento
    - [x] Integrar disparo real com Baileys, limites por plano e monitoramento em tempo real
    - [x] Construir camada visual completa (dashboard, chips, campanhas, billing, configurações)
+   - [x] Disponibilizar relatórios avançados com exportação (CSV/Excel/PDF) para campanhas, chips, finanças e relatório executivo
 
 **Equipe Mínima:**
 - 1 Fullstack Developer (Python + Node.js + Frontend)

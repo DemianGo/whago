@@ -16,6 +16,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..models.chip import Chip, ChipEvent, ChipEventType, ChipStatus
 from ..models.plan import Plan
 from ..models.user import User
+from .notification_service import NotificationService, NotificationType
+from .audit_service import AuditService
 from ..schemas.chip import (
     ChipCreate,
     ChipResponse,
@@ -103,6 +105,28 @@ class ChipService:
             f"Chip criado e aguardando QR (sessão {session_id}).",
         )
 
+        notifier = NotificationService(self.session)
+        await notifier.create(
+            user_id=user.id,
+            title="Novo chip aguardando QR",
+            message=f"O chip {payload.alias} foi criado e precisa ser conectado.",
+            type_=NotificationType.INFO,
+            extra_data={"chip_id": str(chip.id), "session_id": session_id},
+            auto_commit=False,
+        )
+        audit = AuditService(self.session)
+        await audit.record(
+            user_id=user.id,
+            action="chip.create",
+            entity_type="chip",
+            entity_id=str(chip.id),
+            description=f"Chip {payload.alias} criado.",
+            extra_data={"session_id": session_id},
+            ip_address=ip_address,
+            user_agent=user_agent,
+            auto_commit=False,
+        )
+
         await self.session.commit()
         await self.session.refresh(chip)
         return ChipResponse.model_validate(chip)
@@ -133,6 +157,27 @@ class ChipService:
             chip,
             ChipEventType.STATUS_CHANGE,
             "Chip desconectado manualmente pelo usuário.",
+        )
+        notifier = NotificationService(self.session)
+        await notifier.create(
+            user_id=user.id,
+            title="Chip desconectado",
+            message=f"O chip {chip.alias} foi desconectado.",
+            type_=NotificationType.WARNING,
+            extra_data={"chip_id": str(chip.id)},
+            auto_commit=False,
+        )
+        audit = AuditService(self.session)
+        await audit.record(
+            user_id=user.id,
+            action="chip.disconnect",
+            entity_type="chip",
+            entity_id=str(chip.id),
+            description=f"Chip {chip.alias} desconectado pelo usuário.",
+            extra_data=None,
+            ip_address=None,
+            user_agent=None,
+            auto_commit=False,
         )
         await self.session.commit()
         await self.session.refresh(chip)

@@ -26,8 +26,12 @@
           <a href="/dashboard" class="sidebar__link" data-nav="dashboard">📊 Dashboard</a>
           <a href="/chips" class="sidebar__link" data-nav="chips">📱 Chips</a>
           <a href="/campaigns" class="sidebar__link" data-nav="campaigns">📢 Campanhas</a>
+          <a href="/messages" class="sidebar__link" data-nav="messages">💬 Mensagens</a>
+          <a href="/reports" class="sidebar__link" data-nav="reports">📈 Relatórios</a>
+          <a href="/notifications" class="sidebar__link" data-nav="notifications">🔔 Notificações</a>
           <a href="/billing" class="sidebar__link" data-nav="billing">💳 Billing & Créditos</a>
           <a href="/settings" class="sidebar__link" data-nav="settings">⚙️ Configurações</a>
+          <a href="/help" class="sidebar__link" data-nav="help">❓ Ajuda & Suporte</a>
         </nav>
         <div class="sidebar__footer">
           <div class="text-sm text-slate-400" id="sidebar-plan">Plano Free</div>
@@ -38,11 +42,37 @@
 
       <div class="flex flex-1 flex-col">
         <header class="topbar">
+          <div class="flex items-center justify-between gap-3 lg:hidden">
+            <button id="sidebar-toggle" class="sidebar-toggle" type="button" aria-label="Abrir menu">☰</button>
+            <div class="text-right text-xs text-slate-500" id="mobile-plan">Plano ativo</div>
+          </div>
           <div class="space-y-1">
             <h1 class="text-xl font-semibold text-slate-900" id="topbar-title">Painel WHAGO</h1>
             <p class="text-sm text-slate-500">Centralize operações de WhatsApp marketing em um só lugar.</p>
           </div>
           <div class="flex items-center gap-4">
+            <div class="relative">
+              <button
+                id="notifications-toggle"
+                class="notification__button"
+                type="button"
+                aria-haspopup="true"
+                aria-expanded="false"
+              >
+                🔔
+                <span id="notifications-badge" class="notification__badge hidden">0</span>
+              </button>
+              <div id="notifications-dropdown" class="notification__dropdown hidden" role="menu" aria-hidden="true">
+                <div class="notification__dropdown-header">
+                  <span class="font-medium text-slate-700">Notificações</span>
+                  <button id="notifications-mark-all" class="notification__mark-all" type="button">Marcar todas</button>
+                </div>
+                <ul id="notifications-list" class="notification__list"></ul>
+                <div class="notification__footer">
+                  <a href="/notifications" class="notification__view-all">Ver todas</a>
+                </div>
+              </div>
+            </div>
             <div class="text-right">
               <p class="text-sm font-medium text-slate-700" id="user-name">Usuário</p>
               <p class="text-xs text-slate-500" id="user-email">email@empresa.com</p>
@@ -58,5 +88,6 @@
         </main>
       </div>
     </div>
+    <div id="sidebar-overlay" class="sidebar__overlay hidden lg:hidden"></div>
   </body>
 </html>

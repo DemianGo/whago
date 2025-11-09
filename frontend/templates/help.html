@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Ajuda & Suporte | WHAGO{% endblock %}
+{% block content %}
+<section class="space-y-6">
+  <header class="space-y-1">
+    <h2 class="page-title">Ajuda & Suporte</h2>
+    <p class="page-subtitle">Central de recursos para resolver dúvidas rápidas e acionar o time WHAGO.</p>
+  </header>
+
+  <div class="grid gap-6 lg:grid-cols-2">
+    <article class="card space-y-3">
+      <h3 class="card__title">Primeiros passos</h3>
+      <ul class="list-disc space-y-2 pl-5 text-sm text-slate-600">
+        <li><strong>Conecte um chip:</strong> acesse <em>Chips &gt; Adicionar</em>, escaneie o QR code e acompanhe o status.</li>
+        <li><strong>Crie sua campanha:</strong> utilize o assistente em quatro etapas para configurar contatos e mensagens.</li>
+        <li><strong>Monitore envios:</strong> acompanhe progresso em <em>Campanhas</em> e detalhes em <em>Mensagens</em>.</li>
+      </ul>
+    </article>
+
+    <article class="card space-y-3">
+      <h3 class="card__title">Contatos de suporte</h3>
+      <div class="space-y-2 text-sm text-slate-600">
+        <p>Email: <a class="text-primary" href="mailto:suporte@whago.com">suporte@whago.com</a></p>
+        <p>Horário: segunda a sexta, 9h às 18h</p>
+        <p>Planos BUSINESS/ENTERPRISE contam com canal prioritário via WhatsApp.</p>
+      </div>
+    </article>
+
+    <article class="card space-y-3 lg:col-span-2">
+      <h3 class="card__title">Perguntas frequentes</h3>
+      <div class="space-y-3 text-sm text-slate-600">
+        <details class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <summary class="font-semibold text-slate-700">Como evitar banimentos?</summary>
+          <p class="mt-2">Use o maturador de chips, mantenha listas higienizadas e respeite o limite de mensagens por plano.</p>
+        </details>
+        <details class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <summary class="font-semibold text-slate-700">Posso agendar campanhas?</summary>
+          <p class="mt-2">Sim, essa funcionalidade está disponível a partir do plano BUSINESS. Configure a data na etapa 4 do assistente.</p>
+        </details>
+        <details class="rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <summary class="font-semibold text-slate-700">Como acompanho cobranças?</summary>
+          <p class="mt-2">Acesse <em>Billing &amp; Créditos</em> para ver assinaturas, transações, invoices e notificações financeiras.</p>
+        </details>
+      </div>
+    </article>
+  </div>
+</section>
+{% endblock %}

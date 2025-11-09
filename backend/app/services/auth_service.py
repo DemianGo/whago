@@ -23,6 +23,7 @@ from ..core.redis import get_redis_client
 from ..models.plan import Plan, PlanTier
 from ..models.token import TokenType, UserToken
 from ..models.user import User
+from .audit_service import AuditService
 from ..schemas.user import (
     AuthResponse,
     ForgotPasswordRequest,
@@ -91,12 +92,26 @@ class AuthService:
         await self.session.refresh(user)
         await self.session.refresh(user, attribute_names=["plan"])
         try:
-            tokens = await self._issue_auth_tokens(user, user_agent, ip_address)
+            tokens = await self._issue_auth_tokens(user, user_agent, ip_address, commit=False)
         except Exception as exc:  # noqa: BLE001
             await self.session.delete(user)
             await self.session.commit()
             raise
-        return self._build_auth_response(user, tokens)
+        auth_response = self._build_auth_response(user, tokens)
+        audit = AuditService(self.session)
+        await audit.record(
+            user_id=user.id,
+            action="user.registered",
+            entity_type="user",
+            entity_id=str(user.id),
+            description="Usuário registrado com sucesso.",
+            extra_data={"plan": plan.slug if plan else None},
+            ip_address=ip_address,
+            user_agent=user_agent,
+            auto_commit=False,
+        )
+        await self.session.commit()
+        return auth_response
 
     async def login(
         self,
@@ -126,11 +141,23 @@ class AuthService:
             )
 
         user.last_login_at = datetime.utcnow()
+        tokens = await self._issue_auth_tokens(user, user_agent, ip_address, commit=False)
+        audit = AuditService(self.session)
+        await audit.record(
+            user_id=user.id,
+            action="user.login",
+            entity_type="user",
+            entity_id=str(user.id),
+            description="Login realizado com sucesso.",
+            extra_data={"ip": ip_address, "user_agent": user_agent},
+            ip_address=ip_address,
+            user_agent=user_agent,
+            auto_commit=False,
+        )
         await self.session.commit()
         await self.session.refresh(user)
         await self.session.refresh(user, attribute_names=["plan"])
 
-        tokens = await self._issue_auth_tokens(user, user_agent, ip_address)
         await self._reset_login_attempts(identifier)
         return self._build_auth_response(user, tokens)
 
@@ -182,11 +209,23 @@ class AuthService:
             ip_address,
             commit=False,
         )
-
+        audit = AuditService(self.session)
+        await audit.record(
+            user_id=user.id,
+            action="user.token_refresh",
+            entity_type="user",
+            entity_id=str(user.id),
+            description="Tokens de sessão renovados.",
+            extra_data={"ip": ip_address},
+            ip_address=ip_address,
+            user_agent=user_agent,
+            auto_commit=False,
+        )
         await self.session.commit()
         await self.session.refresh(user)
         await self.session.refresh(user, attribute_names=["plan"])
-        return self._build_auth_response(user, tokens)
+        auth_response = self._build_auth_response(user, tokens)
+        return auth_response
 
     async def request_password_reset(
         self,
@@ -213,6 +252,18 @@ class AuthService:
             ),
             user_agent=user_agent,
             ip_address=ip_address,
+        )
+        audit = AuditService(self.session)
+        await audit.record(
+            user_id=user.id,
+            action="user.password_reset_requested",
+            entity_type="user",
+            entity_id=str(user.id),
+            description="Usuário solicitou recuperação de senha.",
+            extra_data={"email": user.email},
+            ip_address=ip_address,
+            user_agent=user_agent,
+            auto_commit=False,
         )
         await self.session.commit()
         return reset_token
@@ -248,6 +299,18 @@ class AuthService:
         token_record.consumed_at = datetime.utcnow()
 
         await self._invalidate_tokens(user.id, TokenType.REFRESH)
+        audit = AuditService(self.session)
+        await audit.record(
+            user_id=user.id,
+            action="user.password_reset",
+            entity_type="user",
+            entity_id=str(user.id),
+            description="Senha redefinida via token de recuperação.",
+            extra_data=None,
+            ip_address=None,
+            user_agent=None,
+            auto_commit=False,
+        )
         await self.session.commit()
 
     def _hash_password(self, password: str) -> str:

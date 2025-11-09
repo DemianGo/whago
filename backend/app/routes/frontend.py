@@ -78,3 +78,35 @@ async def settings(request: Request) -> HTMLResponse:
     )
 
 
+@router.get("/reports", response_class=HTMLResponse)
+async def reports_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        "reports.html",
+        {"request": request, "page_id": "reports"},
+    )
+
+
+@router.get("/notifications", response_class=HTMLResponse)
+async def notifications_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        "notifications.html",
+        {"request": request, "page_id": "notifications"},
+    )
+
+
+@router.get("/messages", response_class=HTMLResponse)
+async def messages_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        "messages.html",
+        {"request": request, "page_id": "messages"},
+    )
+
+
+@router.get("/help", response_class=HTMLResponse)
+async def help_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        "help.html",
+        {"request": request, "page_id": "help"},
+    )
+
+

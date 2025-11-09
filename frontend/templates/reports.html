@@ -1,0 +1,143 @@
+{% extends "base.html" %}
+{% block title %}Relatórios | WHAGO{% endblock %}
+{% block content %}
+<section class="space-y-4">
+  <header>
+    <h2 class="page-title">Relatórios Avançados</h2>
+    <p class="page-subtitle">Exporte dados completos de campanhas, chips, finanças e acompanhe o comparativo de planos.</p>
+  </header>
+
+  <div class="grid gap-6 lg:grid-cols-2">
+    <article class="card">
+      <div class="card__header">
+        <h3 class="card__title">Campanha</h3>
+        <p class="card__subtitle">Escolha uma campanha e exporte todos os detalhes (CSV, Excel ou PDF).</p>
+      </div>
+      <form id="campaign-report-form" class="space-y-3">
+        <label class="text-sm font-medium text-slate-600" for="campaign-report-id">ID da campanha</label>
+        <input id="campaign-report-id" class="input" placeholder="UUID da campanha" required />
+        <div class="flex gap-3">
+          <select id="campaign-report-format" class="input">
+            <option value="json">JSON</option>
+            <option value="csv">CSV</option>
+            <option value="xlsx">Excel</option>
+            <option value="pdf">PDF</option>
+          </select>
+          <button type="submit" class="btn-primary">Gerar</button>
+        </div>
+      </form>
+      <pre id="campaign-report-preview" class="mt-4 hidden overflow-auto rounded-xl bg-slate-900/90 p-4 text-xs text-slate-100"></pre>
+    </article>
+
+    <article class="card">
+      <div class="card__header">
+        <h3 class="card__title">Chips</h3>
+        <p class="card__subtitle">Analise a performance dos chips em um período específico.</p>
+      </div>
+      <form id="chips-report-form" class="space-y-3">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-sm font-medium text-slate-600" for="chips-start">Início</label>
+            <input id="chips-start" class="input" type="datetime-local" />
+          </div>
+          <div>
+            <label class="text-sm font-medium text-slate-600" for="chips-end">Fim</label>
+            <input id="chips-end" class="input" type="datetime-local" />
+          </div>
+        </div>
+        <div class="flex gap-3">
+          <select id="chips-report-format" class="input">
+            <option value="json">JSON</option>
+            <option value="csv">CSV</option>
+            <option value="xlsx">Excel</option>
+            <option value="pdf">PDF</option>
+          </select>
+          <button type="submit" class="btn-primary">Gerar</button>
+        </div>
+      </form>
+      <pre id="chips-report-preview" class="mt-4 hidden overflow-auto rounded-xl bg-slate-900/90 p-4 text-xs text-slate-100"></pre>
+    </article>
+
+    <article class="card">
+      <div class="card__header">
+        <h3 class="card__title">Financeiro</h3>
+        <p class="card__subtitle">Relatório completo de transações, créditos consumidos e ledger.</p>
+      </div>
+      <form id="financial-report-form" class="space-y-3">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-sm font-medium text-slate-600" for="financial-start">Início</label>
+            <input id="financial-start" class="input" type="datetime-local" />
+          </div>
+          <div>
+            <label class="text-sm font-medium text-slate-600" for="financial-end">Fim</label>
+            <input id="financial-end" class="input" type="datetime-local" />
+          </div>
+        </div>
+        <div class="flex gap-3">
+          <select id="financial-report-format" class="input">
+            <option value="json">JSON</option>
+            <option value="csv">CSV</option>
+            <option value="xlsx">Excel</option>
+            <option value="pdf">PDF</option>
+          </select>
+          <button type="submit" class="btn-primary">Gerar</button>
+        </div>
+      </form>
+      <pre id="financial-report-preview" class="mt-4 hidden overflow-auto rounded-xl bg-slate-900/90 p-4 text-xs text-slate-100"></pre>
+    </article>
+
+    <article class="card">
+      <div class="card__header">
+        <h3 class="card__title">Relatório Executivo</h3>
+        <p class="card__subtitle">Resumo estratégico com indicadores principais e recomendações.</p>
+      </div>
+      <form id="executive-report-form" class="space-y-3">
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="text-sm font-medium text-slate-600" for="executive-start">Início</label>
+            <input id="executive-start" class="input" type="datetime-local" />
+          </div>
+          <div>
+            <label class="text-sm font-medium text-slate-600" for="executive-end">Fim</label>
+            <input id="executive-end" class="input" type="datetime-local" />
+          </div>
+        </div>
+        <div class="flex gap-3">
+          <select id="executive-report-format" class="input">
+            <option value="json">JSON</option>
+            <option value="csv">CSV</option>
+            <option value="xlsx">Excel</option>
+            <option value="pdf">PDF</option>
+          </select>
+          <button type="submit" class="btn-primary">Gerar</button>
+        </div>
+      </form>
+      <pre id="executive-report-preview" class="mt-4 hidden overflow-auto rounded-xl bg-slate-900/90 p-4 text-xs text-slate-100"></pre>
+    </article>
+  </div>
+
+  <article class="card">
+    <div class="card__header">
+      <h3 class="card__title">Comparativo de Planos</h3>
+      <p class="card__subtitle">Veja recursos e limites dos planos disponíveis.</p>
+    </div>
+    <div class="flex justify-between gap-3">
+      <button class="btn-secondary" id="download-plan-comparison" data-format="xlsx">Baixar Excel</button>
+      <button class="btn-secondary" id="download-plan-comparison-pdf" data-format="pdf">Baixar PDF</button>
+    </div>
+    <div class="overflow-auto">
+      <table class="table-auto w-full text-sm" id="plan-comparison-table">
+        <thead>
+          <tr class="text-left text-slate-500">
+            <th class="py-2">Plano</th>
+            <th class="py-2">Preço</th>
+            <th class="py-2">Recursos</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-200"></tbody>
+      </table>
+    </div>
+  </article>
+</section>
+{% endblock %}
