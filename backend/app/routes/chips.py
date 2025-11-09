@@ -12,6 +12,7 @@ from fastapi import (
     Depends,
     HTTPException,
     Request,
+    Response,
     WebSocket,
     WebSocketDisconnect,
     status,
@@ -124,6 +125,8 @@ async def disconnect_chip(
 @router.delete(
     "/{chip_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    response_model=None,
 )
 async def delete_chip(
     chip_id: UUID,
@@ -132,6 +135,7 @@ async def delete_chip(
 ) -> None:
     service = ChipService(session)
     await service.delete_chip(current_user, chip_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.websocket("/ws/{chip_id}/qr")

@@ -17,9 +17,9 @@ from redis import Redis
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..app.config import settings
-from ..app.database import AsyncSessionLocal
-from ..app.models.campaign import (
+from app.config import settings
+from app.database import AsyncSessionLocal
+from app.models.campaign import (
     Campaign,
     CampaignContact,
     CampaignMessage,
@@ -27,9 +27,15 @@ from ..app.models.campaign import (
     CampaignType,
     MessageStatus,
 )
-from ..app.services.baileys_client import get_baileys_client
+from app.models.credit import CreditLedger, CreditSource
+from app.models.user import User
+from app.services.baileys_client import get_baileys_client
 
 logger = logging.getLogger("whago.campaign.tasks")
+
+
+class InsufficientCreditsError(Exception):
+    """Erro lançado quando o usuário não possui créditos suficientes."""
 
 
 def _get_sync_redis() -> Redis:
@@ -152,6 +158,32 @@ async def _update_campaign_status(
     )
 
 
+async def _deduct_user_credit(
+    session: AsyncSession,
+    campaign: Campaign,
+    description: str,
+) -> None:
+    result = await session.execute(
+        select(User).where(User.id == campaign.user_id).with_for_update()
+    )
+    user = result.scalar_one_or_none()
+    if user is None:
+        raise RuntimeError("Usuário associado à campanha não encontrado.")
+    if user.credits <= 0:
+        raise InsufficientCreditsError
+
+    user.credits -= 1
+    ledger_entry = CreditLedger(
+        user_id=user.id,
+        source=CreditSource.CONSUMPTION,
+        amount=-1,
+        balance_after=user.credits,
+        description=description,
+    )
+    session.add(ledger_entry)
+    await session.flush()
+
+
 async def _execute_send_message(message_id: UUID) -> bool:
     async with AsyncSessionLocal() as session:
         message = await session.get(CampaignMessage, message_id)
@@ -197,6 +229,12 @@ async def _execute_send_message(message_id: UUID) -> bool:
             message.sent_at = datetime.now(timezone.utc)
             campaign.sent_count += 1
             campaign.credits_consumed += 1
+
+            await _deduct_user_credit(
+                session,
+                campaign,
+                f"Envio de mensagem para {contact.phone_number} na campanha '{campaign.name}'",
+            )
             await session.commit()
 
             _publish_update(
@@ -209,6 +247,34 @@ async def _execute_send_message(message_id: UUID) -> bool:
                 },
             )
             return True
+        except InsufficientCreditsError:
+            logger.warning(
+                "Créditos insuficientes para usuário %s durante envio da campanha %s.",
+                campaign.user_id,
+                campaign.id,
+            )
+            message.status = MessageStatus.FAILED
+            message.failure_reason = "Créditos insuficientes."
+            campaign.failed_count += 1
+            await session.commit()
+            _publish_update(
+                campaign.id,
+                {
+                    "type": "message_failed",
+                    "message_id": str(message.id),
+                    "contact_id": str(contact.id),
+                    "status": message.status,
+                    "reason": message.failure_reason,
+                },
+            )
+            await _update_campaign_status(
+                session,
+                campaign.id,
+                CampaignStatus.PAUSED,
+                paused_at=datetime.now(timezone.utc),
+                reason="insufficient_credits",
+            )
+            return False
         except Exception as exc:  # noqa: BLE001
             logger.exception("Falha ao enviar mensagem %s: %s", message_id, exc)
             message.status = MessageStatus.FAILED

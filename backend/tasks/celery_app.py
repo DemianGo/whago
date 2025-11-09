@@ -8,7 +8,7 @@ import os
 
 from celery import Celery
 
-from ..app.config import settings
+from app.config import settings
 
 os.environ.setdefault("FORKED_BY_MULTIPROCESSING", "1")
 
@@ -21,7 +21,7 @@ celery_app = Celery(
 celery_app.conf.update(
     task_default_queue=settings.celery_task_default_queue,
     task_routes={
-        "backend.tasks.campaign_tasks.*": {
+        "tasks.campaign_tasks.*": {
             "queue": settings.celery_task_queue_campaigns,
         },
     },
@@ -34,9 +34,7 @@ celery_app.conf.update(
 )
 
 celery_app.autodiscover_tasks(
-    packages=(
-        "backend.tasks.campaign_tasks",
-    )
+    packages=("tasks.campaign_tasks",)
 )
 
 

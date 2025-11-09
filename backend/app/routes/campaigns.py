@@ -8,7 +8,7 @@ import asyncio
 from contextlib import suppress
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect, status
+from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, WebSocket, WebSocketDisconnect, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
@@ -75,7 +75,12 @@ async def update_campaign(
     return await service.update_campaign(current_user, campaign_id, payload)
 
 
-@router.delete("/{campaign_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/{campaign_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    response_model=None,
+)
 async def delete_campaign(
     campaign_id: UUID,
     current_user: User = Depends(get_current_user),
@@ -83,6 +88,7 @@ async def delete_campaign(
 ) -> None:
     service = CampaignService(session)
     await service.delete_campaign(current_user, campaign_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post(

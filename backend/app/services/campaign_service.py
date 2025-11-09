@@ -15,8 +15,9 @@ from uuid import UUID
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
-from ...tasks.campaign_tasks import resume_campaign_dispatch, start_campaign_dispatch
+from tasks.campaign_tasks import resume_campaign_dispatch, start_campaign_dispatch
 from ..config import settings
 from ..core.redis import get_redis_client
 from ..models.campaign import (
@@ -28,6 +29,7 @@ from ..models.campaign import (
     MessageStatus,
 )
 from ..models.chip import Chip
+from ..models.plan import PlanTier
 from ..models.user import User
 from ..schemas.campaign import (
     CampaignActionResponse,
@@ -65,11 +67,21 @@ class CampaignService:
         user: User,
         data: CampaignCreate,
     ) -> CampaignDetail:
-        settings = self._normalize_settings(data.settings, data.type)
-        await self._validate_chip_limits(user, settings.chip_ids)
+        db_user = await self._get_user_with_plan(user)
+        self._ensure_campaign_type_allowed(db_user, data.type)
+        if data.type == CampaignType.AB_TEST and not data.message_template_b:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Campanhas A/B Test exigem a segunda variação de mensagem.",
+            )
+        if data.scheduled_for is not None:
+            self._ensure_scheduling_allowed(db_user)
+
+        settings = self._normalize_settings(db_user, data.settings, data.type)
+        await self._validate_chip_limits(db_user, settings.chip_ids)
 
         campaign = Campaign(
-            user_id=user.id,
+            user_id=db_user.id,
             name=data.name,
             description=data.description,
             type=data.type,
@@ -91,6 +103,7 @@ class CampaignService:
         data: CampaignUpdate,
     ) -> CampaignDetail:
         campaign = await self._get_user_campaign(user, campaign_id)
+        db_user = await self._get_user_with_plan(user)
         if campaign.status not in {CampaignStatus.DRAFT, CampaignStatus.SCHEDULED}:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -106,10 +119,17 @@ class CampaignService:
         if data.message_template_b is not None:
             campaign.message_template_b = data.message_template_b
         if data.scheduled_for is not None:
+            if data.scheduled_for and data.scheduled_for < datetime.now(timezone.utc):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Data de agendamento não pode estar no passado.",
+                )
+            if data.scheduled_for is not None:
+                self._ensure_scheduling_allowed(db_user)
             campaign.scheduled_for = data.scheduled_for
         if data.settings is not None:
-            settings = self._normalize_settings(data.settings, campaign.type)
-            await self._validate_chip_limits(user, settings.chip_ids)
+            settings = self._normalize_settings(db_user, data.settings, campaign.type)
+            await self._validate_chip_limits(db_user, settings.chip_ids)
             campaign.settings = settings.model_dump(mode="json")
 
         await self.session.commit()
@@ -133,6 +153,8 @@ class CampaignService:
         file: UploadFile,
     ) -> ContactUploadResponse:
         campaign = await self._get_user_campaign(user, campaign_id)
+        db_user = await self._get_user_with_plan(user)
+        contacts_limit = self._get_contacts_limit(db_user)
         if campaign.status not in {CampaignStatus.DRAFT, CampaignStatus.SCHEDULED}:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -142,6 +164,11 @@ class CampaignService:
         content = await file.read()
         decoded = content.decode("utf-8-sig")
         reader = csv.DictReader(io.StringIO(decoded))
+
+        result_existing = await self.session.execute(
+            select(func.count(CampaignContact.id)).where(CampaignContact.campaign_id == campaign.id)
+        )
+        existing_contacts = result_existing.scalar_one()
 
         total = 0
         valid = 0
@@ -165,6 +192,15 @@ class CampaignService:
             if normalized in seen_numbers:
                 duplicated += 1
                 continue
+
+            if contacts_limit is not None and existing_contacts + valid + 1 > contacts_limit:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=(
+                        f"Limite de {contacts_limit} contatos por campanha atingido para o seu plano. "
+                        "Considere remover contatos ou fazer upgrade de plano."
+                    ),
+                )
 
             seen_numbers.add(normalized)
             name = (row.get("nome") or row.get("name") or "").strip() or None
@@ -214,6 +250,8 @@ class CampaignService:
 
     async def start_campaign(self, user: User, campaign_id: UUID) -> CampaignActionResponse:
         campaign = await self._get_user_campaign(user, campaign_id)
+        db_user = await self._get_user_with_plan(user)
+        self._ensure_campaign_type_allowed(db_user, campaign.type)
         if campaign.status == CampaignStatus.RUNNING:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
@@ -244,6 +282,17 @@ class CampaignService:
             )
 
         campaign.total_contacts = total_contacts
+
+        remaining_to_send = max(total_contacts - campaign.sent_count, 0)
+        if remaining_to_send == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Não há mensagens pendentes para envio nesta campanha.",
+            )
+
+        await self._ensure_active_campaign_limit(db_user, campaign)
+        await self._ensure_credit_balance(db_user, remaining_to_send)
+        await self._ensure_monthly_limit(db_user, remaining_to_send)
 
         now = datetime.now(timezone.utc)
 
@@ -355,6 +404,130 @@ class CampaignService:
             )
         return campaign
 
+    async def _get_user_with_plan(self, user: User) -> User:
+        result = await self.session.execute(
+            select(User)
+            .options(selectinload(User.plan))
+            .where(User.id == user.id)
+        )
+        db_user = result.scalar_one_or_none()
+        if db_user is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Usuário não encontrado.",
+            )
+        return db_user
+
+    def _ensure_campaign_type_allowed(self, user: User, campaign_type: CampaignType) -> None:
+        if campaign_type == CampaignType.AB_TEST:
+            if user.plan is None or user.plan.tier != PlanTier.ENTERPRISE:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Campanhas A/B Test estão disponíveis apenas no plano Enterprise.",
+                )
+
+    def _ensure_scheduling_allowed(self, user: User) -> None:
+        features = self._get_plan_features(user)
+        scheduling_allowed = bool(features.get("scheduling", False))
+        if not scheduling_allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Seu plano não permite agendamento de campanhas. Faça upgrade para liberar este recurso.",
+            )
+
+    def _get_plan_features(self, user: User) -> dict:
+        if user.plan and user.plan.features:
+            return user.plan.features
+        return {}
+
+    def _parse_limit_value(self, raw_value) -> int | None:
+        if raw_value is None:
+            return None
+        if isinstance(raw_value, bool):
+            return 1 if raw_value else 0
+        if isinstance(raw_value, (int, float)):
+            return int(raw_value)
+        if isinstance(raw_value, str):
+            digits = "".join(ch for ch in raw_value if ch.isdigit())
+            if digits:
+                return int(digits)
+        return None
+
+    def _get_contacts_limit(self, user: User) -> int | None:
+        features = self._get_plan_features(user)
+        return self._parse_limit_value(features.get("contacts_per_list"))
+
+    async def _ensure_active_campaign_limit(self, user: User, campaign: Campaign) -> None:
+        features = self._get_plan_features(user)
+        limit = self._parse_limit_value(features.get("campaigns_active"))
+        if limit is None or limit <= 0:
+            return
+
+        result = await self.session.execute(
+            select(func.count(Campaign.id)).where(
+                Campaign.user_id == user.id,
+                Campaign.id != campaign.id,
+                Campaign.status.in_(
+                    [CampaignStatus.RUNNING, CampaignStatus.SCHEDULED]
+                ),
+            )
+        )
+        active_count = result.scalar_one() or 0
+        if active_count >= limit:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Você atingiu o limite de campanhas ativas para o seu plano. "
+                    "Finalize uma campanha ativa ou faça upgrade para iniciar outra."
+                ),
+            )
+
+    async def _ensure_credit_balance(self, user: User, messages_needed: int) -> None:
+        if messages_needed <= 0:
+            return
+        if user.credits < messages_needed:
+            raise HTTPException(
+                status_code=status.HTTP_402_PAYMENT_REQUIRED,
+                detail=(
+                    f"Créditos insuficientes. São necessários {messages_needed} créditos e você possui "
+                    f"{user.credits}. Compre créditos adicionais ou reduza a campanha."
+                ),
+            )
+
+    async def _ensure_monthly_limit(self, user: User, messages_needed: int) -> None:
+        if messages_needed <= 0:
+            return
+        plan = user.plan
+        if plan is None or plan.monthly_messages <= 0:
+            return
+
+        now = datetime.now(timezone.utc)
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+        result = await self.session.execute(
+            select(func.count(CampaignMessage.id))
+            .join(Campaign, CampaignMessage.campaign_id == Campaign.id)
+            .where(
+                Campaign.user_id == user.id,
+                CampaignMessage.sent_at.is_not(None),
+                CampaignMessage.sent_at >= month_start,
+                CampaignMessage.status.in_(
+                    [MessageStatus.SENT, MessageStatus.DELIVERED, MessageStatus.READ]
+                ),
+            )
+        )
+        messages_sent = result.scalar_one() or 0
+        remaining = plan.monthly_messages - messages_sent
+        if remaining < messages_needed:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=(
+                    "Limite mensal de mensagens do plano excedido. "
+                    f"Disponível neste mês: {max(remaining, 0)} mensagem(ns). "
+                    "Faça upgrade ou aguarde o próximo ciclo."
+                ),
+            )
+
     async def _publish_event(self, campaign_id: UUID, payload: dict) -> None:
         redis = get_redis_client()
         channel = f"{settings.redis_campaign_updates_channel}:{campaign_id}"
@@ -380,6 +553,7 @@ class CampaignService:
 
     def _normalize_settings(
         self,
+        user: User,
         settings: CampaignSettings | None,
         campaign_type: CampaignType,
     ) -> CampaignSettings:
@@ -387,6 +561,12 @@ class CampaignService:
             settings = CampaignSettings()
         if campaign_type != CampaignType.AB_TEST:
             settings.randomize_interval = bool(settings.randomize_interval)
+
+        features = self._get_plan_features(user)
+        min_interval = self._parse_limit_value(features.get("min_interval_seconds"))
+        if min_interval is not None:
+            settings.interval_seconds = max(settings.interval_seconds, min_interval)
+
         return settings
 
     async def _validate_chip_limits(self, user: User, chip_ids: Iterable[UUID]) -> None:

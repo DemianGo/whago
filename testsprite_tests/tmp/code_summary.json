@@ -1,0 +1,44 @@
+{
+  "tech_stack": [
+    {
+      "area": "backend",
+      "technologies": [
+        "Python 3.11",
+        "FastAPI",
+        "SQLAlchemy (async)",
+        "Alembic",
+        "Pydantic v2",
+        "Celery",
+        "Redis",
+        "PostgreSQL",
+        "Uvicorn"
+      ]
+    },
+    {
+      "area": "whatsapp_engine",
+      "technologies": [
+        "Node.js",
+        "Baileys",
+        "Express"
+      ]
+    },
+    {
+      "area": "infrastructure",
+      "technologies": [
+        "Docker",
+        "Docker Compose"
+      ]
+    }
+  ],
+  "features": [
+    "Autenticação JWT com refresh tokens, cookies httpOnly e recuperação de senha.",
+    "Modelos de usuário, planos, créditos, transações, chips e campanhas alinhados ao PRD.",
+    "Gerenciamento de chips (criação, QR em tempo real via WebSocket, desconexão e exclusão).",
+    "Sistema de campanhas com upload de contatos, disparo assíncrono via Celery/Baileys, rate limits por plano e acompanhamento em WebSocket.",
+    "Controle de créditos com ledger e travas para limites de plano/mensagens.",
+    "Integração com serviço Baileys para sessões WhatsApp.",
+    "Suporte a Redis para filas/caches e PostgreSQL como banco principal.",
+    "Configuração de infraestrutura Docker para backend, Redis, Postgres, Baileys e worker Celery."
+  ]
+}
+
