@@ -1,0 +1,72 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: whago-postgres
+    restart: always
+    environment:
+      POSTGRES_DB: whago
+      POSTGRES_USER: whago
+      POSTGRES_PASSWORD: whago123
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U whago"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: whago-redis
+    restart: always
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: whago-backend
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ./backend/.env
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/app
+      - ./backend/.env:/app/.env
+    command: >
+      sh -c "uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  baileys:
+    build:
+      context: ./baileys-service
+      dockerfile: Dockerfile
+    container_name: whago-baileys
+    restart: always
+    depends_on:
+      redis:
+        condition: service_healthy
+    env_file:
+      - ./baileys-service/.env
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./baileys-service:/app
+    command: >
+      sh -c "npm install && npm run dev"
+
+volumes:
+  pgdata:
