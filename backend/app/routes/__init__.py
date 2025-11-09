@@ -1,5 +1,6 @@
 """Pacote de rotas FastAPI."""
 
-__all__ = ()
+from . import auth, chips, campaigns
 
+__all__ = ("auth", "chips", "campaigns")
 

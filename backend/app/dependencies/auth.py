@@ -7,7 +7,7 @@ from __future__ import annotations
 from typing import Optional
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, WebSocket, status
 from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -75,6 +75,41 @@ def _decode_token(token: str) -> dict:
         ) from exc
 
 
-__all__ = ("get_current_user",)
+async def authenticate_websocket(
+    websocket: WebSocket,
+    session: AsyncSession,
+) -> User:
+    token = _extract_token_from_websocket(websocket)
+    payload = _decode_token(token)
+    user_id = payload.get("sub")
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token sem identificador de usuário.",
+        )
+    user = await session.get(User, UUID(user_id))
+    if user is None or not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Usuário inválido ou inativo.",
+        )
+    return user
+
+
+def _extract_token_from_websocket(websocket: WebSocket) -> str:
+    token = websocket.cookies.get("whago_access_token")
+    if not token:
+        auth_header = websocket.headers.get("authorization")
+        if auth_header and auth_header.lower().startswith("bearer "):
+            token = auth_header[7:]
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Token de acesso não encontrado.",
+        )
+    return token
+
+
+__all__ = ("get_current_user", "authenticate_websocket")
 
 

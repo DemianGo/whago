@@ -28,6 +28,7 @@ from .plan import Plan
 from .transaction import Transaction
 from .credit import CreditLedger
 from .chip import Chip
+from .campaign import Campaign
 
 
 class User(Base):
@@ -71,6 +72,10 @@ class User(Base):
         cascade="all, delete-orphan",
     )
     chips: Mapped[List[Chip]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    campaigns: Mapped[List[Campaign]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
     )
