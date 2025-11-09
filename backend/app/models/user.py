@@ -25,6 +25,9 @@ from typing import List
 
 from ..database import Base
 from .plan import Plan
+from .transaction import Transaction
+from .credit import CreditLedger
+from .chip import Chip
 
 
 class User(Base):
@@ -56,6 +59,18 @@ class User(Base):
     )
     plan: Mapped[Plan | None] = relationship(back_populates="users")
     tokens: Mapped[List["UserToken"]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    transactions: Mapped[List[Transaction]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    credit_entries: Mapped[List[CreditLedger]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    chips: Mapped[List[Chip]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
     )

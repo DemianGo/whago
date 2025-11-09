@@ -1353,10 +1353,10 @@ Somos da {{empresa}} e temos uma proposta especial para você!
 
 ### 16.3 Próximos Passos para Implementação
 
-1. **Semana 1-2**: Setup de infraestrutura e banco de dados
-2. **Semana 3-4**: Desenvolvimento do sistema de autenticação e usuários
-3. **Semana 5-6**: Integração com Baileys e gerenciamento de chips
-4. **Semana 7-8**: Sistema de campanhas e envio de mensagens
+1. ~~**Semana 1-2**: Setup de infraestrutura e banco de dados~~ ✅
+2. ~~**Semana 3-4**: Desenvolvimento do sistema de autenticação e usuários~~ ✅
+3. ~~**Semana 5-6**: Sistema de Planos e Billing~~ ✅
+4. **Semana 7-8**: Integração com Baileys e gerenciamento de chips
 5. **Semana 9-10**: Dashboard, relatórios e billing
 6. **Semana 11**: Testes, correções, ajustes de UX
 7. **Semana 12**: Deploy, documentação, onboarding
