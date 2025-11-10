@@ -13,6 +13,7 @@ from . import (
     notifications,
     audit,
     messages,
+    webhooks,
 )
 
 __all__ = (
@@ -28,5 +29,6 @@ __all__ = (
     "notifications",
     "audit",
     "messages",
+    "webhooks",
 )
 

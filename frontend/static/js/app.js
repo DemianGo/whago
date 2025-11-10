@@ -29,6 +29,21 @@ const statusMap = {
   error: "Erro",
 };
 
+const WEBHOOK_EVENTS = [
+  { value: "campaign.started", label: "Campanha iniciada" },
+  { value: "campaign.completed", label: "Campanha concluída" },
+  { value: "campaign.paused", label: "Campanha pausada" },
+  { value: "campaign.cancelled", label: "Campanha cancelada" },
+  { value: "message.sent", label: "Mensagem enviada" },
+  { value: "message.failed", label: "Mensagem com falha" },
+  { value: "payment.succeeded", label: "Pagamento aprovado" },
+];
+
+const webhookState = {
+  subscription: null,
+  logs: [],
+};
+
 function getAccessToken() {
   return localStorage.getItem(ACCESS_TOKEN_KEY);
 }
@@ -111,14 +126,15 @@ async function loadProfile() {
   const initialEl = document.getElementById("user-initial");
   const planEl = document.getElementById("sidebar-plan");
   const creditsEl = document.getElementById("sidebar-credits");
+  const planName = data.plan ?? data.plan_name ?? "Plano Free";
   if (nameEl) nameEl.innerText = data.name;
   if (emailEl) emailEl.innerText = data.email;
   if (initialEl) initialEl.innerText = data.name?.[0]?.toUpperCase() ?? "U";
-  if (planEl) planEl.innerText = data.plan_name ?? "Plano Free";
+  if (planEl) planEl.innerText = planName;
   if (creditsEl) creditsEl.innerText = `${data.credits ?? 0} créditos`;
   const mobilePlanEl = document.getElementById("mobile-plan");
   if (mobilePlanEl) {
-    mobilePlanEl.innerText = data.plan_name ? `Plano ${data.plan_name}` : "Plano Free";
+    mobilePlanEl.innerText = `Plano ${planName}`;
   }
 
   const profileName = document.getElementById("settings-name");
@@ -131,6 +147,7 @@ async function loadProfile() {
     if (documentInput) documentInput.value = data.document ?? "";
   }
 
+  window.whagoUser = data;
   return data;
 }
 
@@ -551,7 +568,7 @@ async function loadBilling() {
   const statusResp = await apiFetch("/billing/subscription");
   if (statusResp?.ok) {
     const data = await statusResp.json();
-    document.getElementById("billing-current-plan").innerText = data.plan_name ?? "--";
+    document.getElementById("billing-current-plan").innerText = data.plan_name ?? data.plan ?? "--";
     document.getElementById("billing-renewal").innerText = formatDate(data.renewal_at);
     document.getElementById("billing-pending-plan").innerText = data.pending_plan_name ?? "--";
     document.getElementById("billing-failures").innerText = data.failed_payment_attempts ?? 0;
@@ -703,6 +720,209 @@ function bindProfileForm() {
       passwordFeedback.innerText = "Fluxo de alteração de senha será implementado em breve.";
     });
   }
+}
+
+function ensureWebhookEventsRendered() {
+  const container = document.getElementById("webhook-events-container");
+  if (!container || container.dataset.bound === "true") return;
+  container.innerHTML = "";
+  WEBHOOK_EVENTS.forEach((event) => {
+    const safeId = event.value.replace(/\./g, "-");
+    const wrapper = document.createElement("label");
+    wrapper.className = "inline-flex items-center gap-2 rounded border border-slate-200 bg-white px-3 py-2 text-sm text-slate-600";
+    wrapper.innerHTML = `
+      <input type="checkbox" value="${event.value}" id="webhook-event-${safeId}" class="h-4 w-4 rounded border-slate-300" />
+      <span>${event.label}</span>
+    `;
+    container.appendChild(wrapper);
+  });
+  container.dataset.bound = "true";
+}
+
+function getSelectedWebhookEvents() {
+  const container = document.getElementById("webhook-events-container");
+  if (!container) return [];
+  return Array.from(container.querySelectorAll('input[type="checkbox"]:checked')).map((checkbox) => checkbox.value);
+}
+
+function setSelectedWebhookEvents(events) {
+  const container = document.getElementById("webhook-events-container");
+  if (!container) return;
+  const selected = new Set(events);
+  container.querySelectorAll('input[type="checkbox"]').forEach((checkbox) => {
+    checkbox.checked = selected.has(checkbox.value);
+  });
+}
+
+function setWebhookFeedback(message, type = "info") {
+  const feedback = document.getElementById("webhook-feedback");
+  if (!feedback) return;
+  feedback.innerText = message;
+  feedback.classList.remove("text-red-500", "text-emerald-600", "text-slate-500");
+  if (type === "error") {
+    feedback.classList.add("text-red-500");
+  } else if (type === "success") {
+    feedback.classList.add("text-emerald-600");
+  } else {
+    feedback.classList.add("text-slate-500");
+  }
+}
+
+function renderWebhookLogs(logs) {
+  const section = document.getElementById("webhook-logs");
+  const list = document.getElementById("webhook-logs-list");
+  if (!section || !list) return;
+  if (!logs.length) {
+    section.classList.add("hidden");
+    list.innerHTML = "";
+    return;
+  }
+  section.classList.remove("hidden");
+  list.innerHTML = "";
+  logs.forEach((log) => {
+    const item = document.createElement("li");
+    item.className = "rounded border border-slate-200 bg-slate-50 p-3";
+    item.innerHTML = `
+      <div class="flex items-center justify-between text-xs text-slate-500">
+        <span>${log.event}</span>
+        <span>${formatDate(log.created_at)}</span>
+      </div>
+      <div class="mt-1 text-sm text-slate-600">
+        Status: ${log.success ? "Entregue" : "Falha"} ${log.status_code ? `(HTTP ${log.status_code})` : ""}
+      </div>
+    `;
+    list.appendChild(item);
+  });
+}
+
+async function loadWebhookSettings() {
+  const form = document.getElementById("webhook-form");
+  if (!form) return;
+  const disabledBox = document.getElementById("webhook-disabled");
+  const deleteButton = document.getElementById("webhook-delete");
+  const testButton = document.getElementById("webhook-test");
+  ensureWebhookEventsRendered();
+
+  const features = window.whagoUser?.plan_features || {};
+  if (!features.webhooks) {
+    disabledBox?.classList.remove("hidden");
+    form.classList.add("hidden");
+    deleteButton?.classList.add("hidden");
+    testButton?.setAttribute("disabled", "disabled");
+    renderWebhookLogs([]);
+    return;
+  }
+
+  disabledBox?.classList.add("hidden");
+  form.classList.remove("hidden");
+  testButton?.removeAttribute("disabled");
+
+  try {
+    const [subscriptionResp, logsResp] = await Promise.all([
+      apiFetch("/webhooks"),
+      apiFetch("/webhooks/logs"),
+    ]);
+    if (!subscriptionResp?.ok) {
+      setWebhookFeedback("Não foi possível carregar o webhook configurado.", "error");
+      return;
+    }
+    const subscriptions = await subscriptionResp.json();
+    webhookState.subscription = subscriptions[0] ?? null;
+    if (webhookState.subscription) {
+      document.getElementById("webhook-url").value = webhookState.subscription.url;
+      document.getElementById("webhook-secret").value = webhookState.subscription.secret ?? "";
+      document.getElementById("webhook-active").checked = webhookState.subscription.is_active;
+      setSelectedWebhookEvents(webhookState.subscription.events || []);
+      deleteButton?.classList.remove("hidden");
+    } else {
+      document.getElementById("webhook-url").value = "";
+      document.getElementById("webhook-secret").value = "";
+      document.getElementById("webhook-active").checked = true;
+      setSelectedWebhookEvents([]);
+      deleteButton?.classList.add("hidden");
+    }
+    if (logsResp?.ok) {
+      webhookState.logs = await logsResp.json();
+      renderWebhookLogs(webhookState.logs);
+    }
+    setWebhookFeedback("Configurações carregadas.", "success");
+  } catch (error) {
+    setWebhookFeedback("Erro ao carregar webhooks.", "error");
+    console.error(error); // eslint-disable-line no-console
+  }
+}
+
+function bindWebhookForm() {
+  const form = document.getElementById("webhook-form");
+  if (!form || form.dataset.bound === "true") return;
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    setWebhookFeedback("Salvando configuração...");
+    const payload = {
+      url: document.getElementById("webhook-url").value,
+      secret: document.getElementById("webhook-secret").value || null,
+      events: getSelectedWebhookEvents(),
+      is_active: document.getElementById("webhook-active").checked,
+    };
+    const response = await apiFetch("/webhooks", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    if (response?.ok) {
+      setWebhookFeedback("Webhook salvo com sucesso.", "success");
+      await loadWebhookSettings();
+    } else {
+      setWebhookFeedback("Não foi possível salvar o webhook.", "error");
+    }
+  });
+
+  const testButton = document.getElementById("webhook-test");
+  if (testButton) {
+    testButton.addEventListener("click", async () => {
+      if (!webhookState.subscription) {
+        setWebhookFeedback("Configure um webhook antes de enviar testes.", "error");
+        return;
+      }
+      setWebhookFeedback("Disparando evento de teste...");
+      const response = await apiFetch("/webhooks/test", {
+        method: "POST",
+        body: JSON.stringify({
+          subscription_id: webhookState.subscription.id,
+          event: "campaign.started",
+          payload: { origin: "settings.test" },
+        }),
+      });
+      if (response?.ok) {
+        setWebhookFeedback("Evento de teste enviado.", "success");
+        await loadWebhookSettings();
+      } else {
+        setWebhookFeedback("Falha ao enviar evento de teste.", "error");
+      }
+    });
+  }
+
+  const deleteButton = document.getElementById("webhook-delete");
+  if (deleteButton) {
+    deleteButton.addEventListener("click", async () => {
+      if (!webhookState.subscription) {
+        setWebhookFeedback("Nenhum webhook configurado.", "error");
+        return;
+      }
+      setWebhookFeedback("Removendo webhook...");
+      const response = await apiFetch(`/webhooks/${webhookState.subscription.id}`, {
+        method: "DELETE",
+      });
+      if (response?.ok) {
+        webhookState.subscription = null;
+        setWebhookFeedback("Webhook removido.", "success");
+        await loadWebhookSettings();
+      } else {
+        setWebhookFeedback("Erro ao remover webhook.", "error");
+      }
+    });
+  }
+
+  form.dataset.bound = "true";
 }
 
 function bindLoginForms() {
@@ -961,7 +1181,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     setActiveNavigation();
     bindSidebarToggle();
-    await loadProfile();
+    const profile = await loadProfile();
     bindNotificationDropdown();
     await refreshNotificationsPreview();
     if (!notificationsState.intervalId) {
@@ -984,6 +1204,14 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
     if (currentPage === "settings") {
       bindProfileForm();
+      bindWebhookForm();
+      if (profile?.plan_features?.webhooks) {
+        await loadWebhookSettings();
+      } else {
+        document.getElementById("webhook-disabled")?.classList.remove("hidden");
+        document.getElementById("webhook-form")?.classList.add("hidden");
+        renderWebhookLogs([]);
+      }
     }
     if (currentPage === "executive") {
       bindProfileForm();

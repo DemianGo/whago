@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import settings
 from .core.redis import close_redis
 from .database import init_db, wait_for_db_readiness
-from .routes import auth, chips, campaigns, plans, users, dashboard, billing, frontend, reports, notifications, audit, messages
+from .routes import auth, chips, campaigns, plans, users, dashboard, billing, frontend, reports, notifications, audit, messages, webhooks
 
 logger = logging.getLogger("whago.app")
 
@@ -61,6 +61,7 @@ def create_application() -> FastAPI:
     app.include_router(notifications.router)
     app.include_router(audit.router)
     app.include_router(messages.router)
+    app.include_router(webhooks.router)
 
     static_dir = Path(__file__).resolve().parents[1] / "frontend" / "static"
     if static_dir.exists():

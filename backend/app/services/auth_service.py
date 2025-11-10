@@ -367,6 +367,8 @@ class AuthService:
 
     def _build_auth_response(self, user: User, tokens: TokenPair) -> AuthResponse:
         plan_name = user.plan.name if user.plan else None
+        plan_slug = user.plan.slug if user.plan else None
+        plan_features = user.plan.features if user.plan else None
         user_public = UserPublic.model_validate(
             {
                 "id": user.id,
@@ -377,6 +379,8 @@ class AuthService:
                 "document": user.document,
                 "credits": user.credits,
                 "plan": plan_name,
+                 "plan_slug": plan_slug,
+                 "plan_features": plan_features,
                 "is_active": user.is_active,
                 "is_verified": user.is_verified,
                 "created_at": user.created_at,

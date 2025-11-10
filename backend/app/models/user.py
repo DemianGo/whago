@@ -25,6 +25,7 @@ from typing import List
 
 from ..database import Base
 from .plan import Plan
+from .webhook import WebhookSubscription, WebhookDeliveryLog
 from .transaction import Transaction
 from .credit import CreditLedger
 from .chip import Chip
@@ -103,6 +104,14 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
         order_by="AuditLog.created_at.desc()",
+    )
+    webhooks: Mapped[List[WebhookSubscription]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+    )
+    webhook_deliveries: Mapped[List[WebhookDeliveryLog]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
     )
 
     created_at: Mapped[datetime] = mapped_column(

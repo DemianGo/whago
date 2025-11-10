@@ -11,8 +11,6 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from alembic import op
-import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 
 # revision identifiers, used by Alembic.
@@ -23,69 +21,57 @@ depends_on: Sequence[str] | None = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        "webhook_subscriptions",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
-        sa.Column(
-            "user_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("users.id", ondelete="CASCADE"),
-            nullable=False,
-        ),
-        sa.Column("url", sa.String(length=500), nullable=False),
-        sa.Column("secret", sa.String(length=255), nullable=True),
-        sa.Column("events", postgresql.JSONB(astext_type=sa.Text()), nullable=False, server_default=sa.text("'[]'::jsonb")),
-        sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.text("true")),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
-        sa.Column(
-            "updated_at",
-            sa.DateTime(timezone=True),
-            nullable=False,
-            server_default=sa.text("now()"),
-        ),
-        sa.Column("last_delivery_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("failure_count", sa.Integer(), nullable=False, server_default=sa.text("0")),
+    op.execute(
+        """
+        CREATE TABLE IF NOT EXISTS webhook_subscriptions (
+            id UUID PRIMARY KEY,
+            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            url VARCHAR(500) NOT NULL,
+            secret VARCHAR(255),
+            events JSONB NOT NULL DEFAULT '[]'::jsonb,
+            is_active BOOLEAN NOT NULL DEFAULT true,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            last_delivery_at TIMESTAMPTZ,
+            failure_count INTEGER NOT NULL DEFAULT 0
+        );
+        """
     )
-    op.create_index(
-        "ix_webhook_subscriptions_user_active",
-        "webhook_subscriptions",
-        ["user_id", "is_active"],
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS ix_webhook_subscriptions_user_active
+        ON webhook_subscriptions(user_id, is_active);
+        """
     )
 
-    op.create_table(
-        "webhook_delivery_logs",
-        sa.Column("id", postgresql.UUID(as_uuid=True), primary_key=True, nullable=False),
-        sa.Column(
-            "subscription_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("webhook_subscriptions.id", ondelete="CASCADE"),
-            nullable=False,
-        ),
-        sa.Column(
-            "user_id",
-            postgresql.UUID(as_uuid=True),
-            sa.ForeignKey("users.id", ondelete="CASCADE"),
-            nullable=False,
-        ),
-        sa.Column("event", sa.String(length=80), nullable=False),
-        sa.Column("url", sa.String(length=500), nullable=False),
-        sa.Column("payload", postgresql.JSONB(astext_type=sa.Text()), nullable=False),
-        sa.Column("status_code", sa.Integer(), nullable=True),
-        sa.Column("success", sa.Boolean(), nullable=False, server_default=sa.text("false")),
-        sa.Column("response_body", sa.Text(), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), nullable=False, server_default=sa.text("now()")),
+    op.execute(
+        """
+        CREATE TABLE IF NOT EXISTS webhook_delivery_logs (
+            id UUID PRIMARY KEY,
+            subscription_id UUID NOT NULL REFERENCES webhook_subscriptions(id) ON DELETE CASCADE,
+            user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            event VARCHAR(80) NOT NULL,
+            url VARCHAR(500) NOT NULL,
+            payload JSONB NOT NULL,
+            status_code INTEGER,
+            success BOOLEAN NOT NULL DEFAULT false,
+            response_body TEXT,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        );
+        """
     )
-    op.create_index(
-        "ix_webhook_delivery_logs_user_created",
-        "webhook_delivery_logs",
-        ["user_id", "created_at"],
+    op.execute(
+        """
+        CREATE INDEX IF NOT EXISTS ix_webhook_delivery_logs_user_created
+        ON webhook_delivery_logs(user_id, created_at);
+        """
     )
 
 
 def downgrade() -> None:
-    op.drop_index("ix_webhook_delivery_logs_user_created", table_name="webhook_delivery_logs")
-    op.drop_table("webhook_delivery_logs")
-    op.drop_index("ix_webhook_subscriptions_user_active", table_name="webhook_subscriptions")
-    op.drop_table("webhook_subscriptions")
+    op.execute("DROP INDEX IF EXISTS ix_webhook_delivery_logs_user_created;")
+    op.execute("DROP TABLE IF EXISTS webhook_delivery_logs;")
+    op.execute("DROP INDEX IF EXISTS ix_webhook_subscriptions_user_active;")
+    op.execute("DROP TABLE IF EXISTS webhook_subscriptions;")
 
 

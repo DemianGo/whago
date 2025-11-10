@@ -37,6 +37,11 @@ services:
     restart: always
     environment:
       UVICORN_RELOAD_FLAG: "${UVICORN_RELOAD_FLAG:-}"
+      PYTHONPATH: "/app"
+      BAILEYS_API_URL: "http://baileys:3030/api/v1"
+      REDIS_URL: "redis://redis:6379/0"
+      CELERY_BROKER_URL: "redis://redis:6379/1"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/2"
     depends_on:
       postgres:
         condition: service_healthy
@@ -59,6 +64,12 @@ services:
       dockerfile: Dockerfile
     container_name: whago-celery
     restart: always
+    environment:
+      PYTHONPATH: "/app"
+      BAILEYS_API_URL: "http://baileys:3030/api/v1"
+      REDIS_URL: "redis://redis:6379/0"
+      CELERY_BROKER_URL: "redis://redis:6379/1"
+      CELERY_RESULT_BACKEND: "redis://redis:6379/2"
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,7 +81,7 @@ services:
       - ./backend:/app
       - ./backend/.env:/app/.env
     command: >
-      sh -c "celery -A backend.tasks.celery_app worker --loglevel=info --concurrency=1"
+      sh -c "celery -A tasks.celery_app worker --loglevel=info --concurrency=1"
 
   baileys:
     build:
@@ -83,12 +94,14 @@ services:
         condition: service_healthy
     env_file:
       - ./baileys-service/.env
+    environment:
+      WHAGO_BAILEYS_PORT: 3030
     ports:
-      - "3000:3000"
+      - "3030:3030"
     volumes:
       - ./baileys-service:/app
     command: >
-      sh -c "npm install && npm run dev"
+      sh -c "npm install && npm start"
 
 volumes:
   pgdata:

@@ -193,6 +193,8 @@ class UserPublic(BaseModel):
     document: Optional[str]
     credits: int
     plan: Optional[str]
+    plan_slug: Optional[str] = None
+    plan_features: Optional[dict] = None
     is_active: bool
     is_verified: bool
     created_at: datetime

@@ -131,6 +131,45 @@ class WebhookService:
         await self.session.commit()
         return sum(1 for delivery in deliveries if delivery.success)
 
+    async def list_subscriptions(self, user_id: UUID) -> list[WebhookSubscription]:
+        result = await self.session.execute(
+            select(WebhookSubscription)
+            .where(WebhookSubscription.user_id == user_id)
+            .order_by(WebhookSubscription.created_at.desc())
+        )
+        return result.scalars().all()
+
+    async def delete_subscription(self, user_id: UUID, subscription_id: UUID) -> None:
+        subscription = await self.session.get(WebhookSubscription, subscription_id)
+        if subscription is None or subscription.user_id != user_id:
+            raise ValueError("Assinatura não encontrada.")
+        await self.session.delete(subscription)
+        await self.session.commit()
+
+    async def get_recent_logs(self, user_id: UUID, limit: int = 20) -> list[WebhookDeliveryLog]:
+        result = await self.session.execute(
+            select(WebhookDeliveryLog)
+            .where(WebhookDeliveryLog.user_id == user_id)
+            .order_by(WebhookDeliveryLog.created_at.desc())
+            .limit(limit)
+        )
+        return result.scalars().all()
+
+    async def test_event(
+        self,
+        *,
+        user_id: UUID,
+        subscription_id: UUID,
+        event: WebhookEvent | str,
+        payload: dict,
+    ) -> int:
+        subscription = await self.session.get(WebhookSubscription, subscription_id)
+        if subscription is None or subscription.user_id != user_id:
+            raise ValueError("Assinatura não encontrada.")
+        if not subscription.is_active:
+            raise ValueError("Assinatura está desativada.")
+        return await self.dispatch(user_id=user_id, event=event, payload=payload)
+
     def _build_headers(
         self,
         subscription: WebhookSubscription,

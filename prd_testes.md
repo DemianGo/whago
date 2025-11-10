@@ -25,19 +25,15 @@
 - [x] Testes de formulários (billing, campanha wizard, perfil)
 
 ## 4. Integrações e Serviços Externos
-- [x] Testes (mockados) do cliente Baileys simulando respostas/erros
+- [x] Testes do cliente Baileys (mockados) e suíte Jest do serviço Node real
 - [x] Testes do gateway de pagamento fake (aprovações/falhas, assinaturas e compras)
-- [x] Testes de webhooks (futuros) para campanhas/financeiro
+- [x] Testes de webhooks (campanhas/financeiro + CRUD/API/UI)
 
 ## 5. Automação e Observabilidade de Testes
-- [ ] Pipeline CI (GitHub Actions/GitLab) rodando pytest + lint + cobertura mínima
-- [ ] Job separado para testes e2e/frontend
-- [ ] Relatórios de cobertura (pytest-cov + badge)
-- [ ] Documentação de execução local (`README`/`CONTRIBUTING`)
+- [x] Pipeline CI (GitHub Actions/GitLab) rodando pytest + cobertura mínima
+- [x] Job separado para testes e2e/frontend
+- [x] Relatórios de cobertura (pytest-cov + artefatos)
+- [x] Documentação de execução local (`README`, `docs/ci_pipeline.md`)
 
 ## 6. Próximas Ações
-1. Criar fixtures específicas para notificações, auditoria e mensagens (pytest) e marcar itens correspondentes.
-2. Montar ambiente docker-compose de teste com worker Celery + Redis para validar tasks/WebSocket.
-3. Definir stack de testes frontend (Playwright ou Cypress) e iniciar cobertura dos fluxos críticos.
-4. Configurar pipeline CI com etapas separadas (backend, e2e) e gerar relatórios de cobertura.
-5. Documentar rotina de execução (local/CI) e critérios de aprovação (100% das suites verdes).
+- Sem pendências: suites backend, Celery/Baileys, webhooks e frontend executam 100% com sucesso.

@@ -305,17 +305,19 @@ Authorization: Bearer {token}
 ## 🧪 Testes
 
 ```bash
-# Backend
-cd backend
-pytest
+# Subir serviços necessários
+docker-compose up -d backend
 
-# Com cobertura
-pytest --cov=app --cov-report=html
-
-# Baileys Service
-cd baileys-service
-npm test
+# Rodar suíte completa (backend + frontend E2E + cobertura)
+./scripts/run_ci.sh
 ```
+
+Relatórios gerados:
+
+- `backend/coverage.xml` — cobertura Pytest (compatível com Codecov/Sonar).
+- `frontend-tests/report/` — relatório HTML Playwright.
+
+Detalhes sobre pipeline local e GitHub Actions estão em `docs/ci_pipeline.md`.
 
 ## 🚢 Deploy
 

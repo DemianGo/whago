@@ -1,0 +1,122 @@
+name: CI Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        ports: ["5432:5432"]
+        env:
+          POSTGRES_DB: whago
+          POSTGRES_USER: whago
+          POSTGRES_PASSWORD: whago123
+        options: >-
+          --health-cmd "pg_isready -U whago"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+      redis:
+        image: redis:7-alpine
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql+asyncpg://whago:whago123@localhost:5432/whago
+      REDIS_URL: redis://localhost:6379/0
+      PYTHONPATH: backend
+      BAILEYS_API_URL: http://127.0.0.1:3030/api/v1
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install --upgrade pip && pip install -r backend/requirements.txt
+
+      - name: Install Node dependencies (Baileys)
+        run: npm --prefix baileys-service install
+
+      - name: Run Baileys service tests
+        run: npm --prefix baileys-service test
+
+      - name: Start Baileys service
+        env:
+          WHAGO_BAILEYS_PORT: 3030
+        run: |
+          nohup node baileys-service/src/index.js > /tmp/baileys.log 2>&1 &
+          sleep 3
+
+      - name: Start Celery worker
+        run: |
+          nohup env PYTHONPATH=backend celery -A tasks.celery_app worker --loglevel=info --concurrency=1 > /tmp/celery.log 2>&1 &
+          sleep 5
+
+      - name: Apply migrations
+        working-directory: backend
+        run: alembic upgrade head
+
+      - name: Run pytest with coverage
+        working-directory: backend
+        run: pytest --cov=app --cov-report=xml:coverage.xml -q
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: backend-coverage
+          path: backend/coverage.xml
+
+  frontend:
+    runs-on: ubuntu-latest
+    needs: backend
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Install Playwright browsers
+        run: npx playwright install --with-deps
+
+      - name: Start backend stack
+        run: docker-compose up -d backend redis postgres celery baileys
+
+      - name: Wait for backend health
+        run: |
+          for attempt in {1..30}; do
+            if curl -sSf http://localhost:8000/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Backend not ready" >&2
+          exit 1
+
+      - name: Run Playwright tests
+        run: npm run test:e2e
+
+      - name: Upload Playwright report
+        uses: actions/upload-artifact@v3
+        with:
+          name: playwright-report
+          path: frontend-tests/report
+

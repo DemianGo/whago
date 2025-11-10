@@ -48,5 +48,45 @@
       <p id="password-feedback" class="text-sm text-slate-500"></p>
     </form>
   </article>
+
+  <article class="card" id="webhook-card">
+    <div class="card__header">
+      <h2 class="card__title">Webhooks (Enterprise)</h2>
+      <p class="card__subtitle">Receba eventos em tempo real diretamente na sua infraestrutura.</p>
+    </div>
+    <div id="webhook-disabled" class="rounded-lg border border-dashed border-red-200 bg-red-50 p-4 text-sm text-red-600 hidden">
+      Recurso disponível apenas para o plano Enterprise. Faça upgrade para habilitar webhooks.
+    </div>
+    <form id="webhook-form" class="space-y-4 hidden">
+      <div class="space-y-2">
+        <label for="webhook-url" class="text-sm font-medium text-slate-600">URL do webhook</label>
+        <input id="webhook-url" name="url" type="url" class="input" placeholder="https://sua-api.com/webhooks/whago" required />
+      </div>
+      <div class="space-y-2">
+        <label for="webhook-secret" class="text-sm font-medium text-slate-600">Secret (opcional)</label>
+        <input id="webhook-secret" name="secret" type="text" class="input" placeholder="Assinatura para validar eventos" />
+      </div>
+      <fieldset class="space-y-2">
+        <legend class="text-sm font-medium text-slate-600">Eventos</legend>
+        <div class="grid gap-2 md:grid-cols-2" id="webhook-events-container"></div>
+      </fieldset>
+      <div class="flex flex-wrap items-center gap-3">
+        <label class="inline-flex items-center gap-2 text-sm text-slate-600">
+          <input type="checkbox" id="webhook-active" class="h-4 w-4 rounded border-slate-300" checked />
+          Assinatura ativa
+        </label>
+      </div>
+      <div class="flex flex-wrap gap-3">
+        <button type="submit" class="btn-primary">Salvar configurações</button>
+        <button type="button" id="webhook-test" class="btn-secondary">Enviar evento de teste</button>
+        <button type="button" id="webhook-delete" class="btn-secondary text-red-600 hidden">Remover webhook</button>
+      </div>
+      <p id="webhook-feedback" class="text-sm text-slate-500"></p>
+    </form>
+    <section id="webhook-logs" class="mt-4 hidden">
+      <h3 class="text-sm font-semibold text-slate-600">Últimos envios</h3>
+      <ul id="webhook-logs-list" class="mt-2 space-y-2 text-sm text-slate-600"></ul>
+    </section>
+  </article>
 </section>
 {% endblock %}

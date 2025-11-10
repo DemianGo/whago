@@ -118,6 +118,8 @@ class UserService:
                 User.created_at,
                 User.updated_at,
                 Plan.name.label("plan_name"),
+                Plan.slug.label("plan_slug"),
+                Plan.features.label("plan_features"),
             )
             .join(Plan, Plan.id == User.plan_id, isouter=True)
             .where(User.id == user_id)
@@ -142,6 +144,8 @@ class UserService:
                 "is_verified": row["is_verified"],
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
+                "plan_slug": row["plan_slug"],
+                "plan_features": row["plan_features"],
             }
         )
 

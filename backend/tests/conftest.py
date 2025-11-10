@@ -34,6 +34,20 @@ BASE_URL = "http://localhost:8000"
 SYNC_ENGINE = create_engine(make_url(settings.database_url).set(drivername="postgresql+psycopg2", host="postgres"))
 
 
+@pytest.fixture(autouse=True)
+def disable_rate_limit() -> None:
+    original = settings.rate_limit_enabled
+    settings.rate_limit_enabled = False
+    try:
+        from app.core.redis import get_redis_client
+        redis = get_redis_client()
+        asyncio.run(redis.flushdb())
+    except Exception:
+        pass
+    yield
+    settings.rate_limit_enabled = original
+
+
 @pytest.fixture(scope="session")
 def base_url() -> str:
     """URL base para chamadas HTTP reais contra o backend."""

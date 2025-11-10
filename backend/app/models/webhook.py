@@ -7,10 +7,14 @@ from __future__ import annotations
 import enum
 import uuid
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+if TYPE_CHECKING:
+    from .user import User
 
 from ..database import Base
 
@@ -58,8 +62,11 @@ class WebhookSubscription(Base):
     failure_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     deliveries: Mapped[list["WebhookDeliveryLog"]] = relationship(
-        back_populates="subscription", cascade="all, delete-orphan", lazy="selectin"
+        back_populates="subscription",
+        cascade="all, delete-orphan",
+        lazy="selectin",
     )
+    user: Mapped["User"] = relationship(back_populates="webhooks")
 
 
 class WebhookDeliveryLog(Base):
@@ -89,6 +96,7 @@ class WebhookDeliveryLog(Base):
     )
 
     subscription: Mapped[WebhookSubscription] = relationship(back_populates="deliveries")
+    user: Mapped["User"] = relationship(back_populates="webhook_deliveries")
 
 
 __all__ = (
