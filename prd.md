@@ -1357,12 +1357,17 @@ Somos da {{empresa}} e temos uma proposta especial para você!
 2. ~~**Semana 3-4**: Desenvolvimento do sistema de autenticação e usuários~~ ✅
 3. ~~**Semana 5-6**: Sistema de Planos e Billing~~ ✅
 4. ~~**Semana 7-8**: Integração com Baileys e gerenciamento de chips~~ ✅
-5. **Semana 9-10**: Dashboard, relatórios e billing
+5. ~~**Semana 9-10**: Dashboard, relatórios e billing~~ ✅
    - [x] Implementar serviços e rotas de campanhas (criar/listar/detalhar/start/pausar)
    - [x] Configurar fila de envio (Celery/worker) e WebSocket de acompanhamento
    - [x] Integrar disparo real com Baileys, limites por plano e monitoramento em tempo real
    - [x] Construir camada visual completa (dashboard, chips, campanhas, billing, configurações)
    - [x] Disponibilizar relatórios avançados com exportação (CSV/Excel/PDF) para campanhas, chips, finanças e relatório executivo
+6. **Semana 11-12**: Deploy, documentação final e onboarding de clientes
+   - [ ] Preparar infraestrutura de produção (Docker Compose/Kubernetes, secrets, monitoramento)
+   - [ ] Automatizar deploy contínuo (pipeline CI/CD + versionamento)
+   - [ ] Produzir documentação final (manual de uso, runbook operacional, FAQs)
+   - [ ] Definir processo de onboarding/support (fluxo de cadastro, templates de comunicação, checklists)
 
 **Equipe Mínima:**
 - 1 Fullstack Developer (Python + Node.js + Frontend)

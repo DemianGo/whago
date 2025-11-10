@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<coverage generated="1762746888612" clover="3.2.0">
-  <project timestamp="1762746888612" name="All files">
+<coverage generated="1762779758814" clover="3.2.0">
+  <project timestamp="1762779758814" name="All files">
     <metrics statements="83" coveredstatements="59" conditionals="44" coveredconditionals="24" methods="12" coveredmethods="7" elements="139" coveredelements="90" complexity="0" loc="83" ncloc="83" packages="1" files="1" classes="1"/>
     <file name="server.js" path="/home/liberai/whago/baileys-service/src/server.js">
       <metrics statements="83" coveredstatements="59" conditionals="44" coveredconditionals="24" methods="12" coveredmethods="7"/>

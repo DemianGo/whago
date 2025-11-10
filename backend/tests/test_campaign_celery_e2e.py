@@ -7,15 +7,12 @@ from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import select
-
-from sqlalchemy import create_engine
+from sqlalchemy import select, create_engine
 from sqlalchemy.orm import Session
 from sqlalchemy.engine.url import make_url
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from app.database import AsyncSessionLocal, DATABASE_URL_RAW_ADJUSTED
-import pytest
-
 from app.models.campaign import (
     Campaign,
     CampaignContact,
@@ -77,40 +74,67 @@ async def _seed_campaign(user_id: UUID) -> UUID:
 
 
 async def _fetch_campaign(campaign_id: UUID) -> Campaign:
-  async with AsyncSessionLocal() as session:
-      campaign = await session.get(Campaign, campaign_id)
-      await session.refresh(campaign)
-      return campaign
+    async with AsyncSessionLocal() as session:
+        campaign = await session.get(Campaign, campaign_id)
+        await session.refresh(campaign)
+        return campaign
 
 
 async def _fetch_messages(campaign_id: UUID) -> list[CampaignMessage]:
-  async with AsyncSessionLocal() as session:
-      result = await session.execute(
-          select(CampaignMessage).where(CampaignMessage.campaign_id == campaign_id)
-      )
-      return result.scalars().all()
+    async with AsyncSessionLocal() as session:
+        result = await session.execute(
+            select(CampaignMessage).where(CampaignMessage.campaign_id == campaign_id)
+        )
+        return result.scalars().all()
 
 
 @pytest.mark.asyncio
 async def test_campaign_dispatch_end_to_end(register_user, async_client_factory, monkeypatch) -> None:
-  response, _ = await register_user(
-      plan_slug="business",
-      company_name="Empresa Celery",
-      document="11144477735",
-  )
-  assert response.status_code == 201, response.text
-  tokens = response.json()["tokens"]
-  headers = {"Authorization": f"Bearer {tokens['access_token']}"}
-  user_id = UUID(response.json()["user"]["id"])
+    response, _ = await register_user(
+        plan_slug="business",
+        company_name="Empresa Celery",
+        document="11144477735",
+    )
+    assert response.status_code == 201, response.text
+    tokens = response.json()["tokens"]
+    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+    user_id = UUID(response.json()["user"]["id"])
 
-  campaign_id = await _seed_campaign(user_id)
+    campaign_id = await _seed_campaign(user_id)
 
-  async with async_client_factory(headers=headers) as client:
-      start_resp = await client.post(f"/api/v1/campaigns/{campaign_id}/start")
-      assert start_resp.status_code == 200, start_resp.text
+    async with async_client_factory(headers=headers) as client:
+        start_resp = await client.post(f"/api/v1/campaigns/{campaign_id}/start")
+        assert start_resp.status_code == 200, start_resp.text
 
-  with Session(SYNC_ENGINE) as session:
-      campaign = session.get(Campaign, campaign_id)
-      assert campaign is not None
-      assert campaign.status == CampaignStatus.RUNNING
+    # Executa o worker Celery real reutilizando a mesma lógica de produção.
+    async_engine = create_async_engine(
+        make_url(DATABASE_URL_RAW_ADJUSTED).set(drivername="postgresql+asyncpg")
+    )
+    test_session_factory = async_sessionmaker(async_engine, expire_on_commit=False)
+    monkeypatch.setattr(campaign_tasks, "AsyncSessionLocal", test_session_factory)
+    try:
+        await campaign_tasks._start_campaign_dispatch(campaign_id)
+    finally:
+        await async_engine.dispose()
+
+    with Session(SYNC_ENGINE) as session:
+        campaign = session.get(Campaign, campaign_id)
+        messages = (
+            session.execute(
+                select(CampaignMessage).where(CampaignMessage.campaign_id == campaign_id)
+            )
+            .scalars()
+            .all()
+        )
+
+    assert campaign is not None, "Campanha não encontrada após disparo."
+    assert campaign.status == CampaignStatus.COMPLETED, "Campanha não finalizou com sucesso."
+    assert campaign.completed_at is not None and campaign.completed_at <= datetime.now(timezone.utc)
+    assert campaign.sent_count == 1
+    assert campaign.failed_count == 0
+    assert messages, "Mensagens devem ter sido geradas pela campanha."
+    assert all(
+        message.status in {MessageStatus.SENT, MessageStatus.DELIVERED, MessageStatus.READ}
+        for message in messages
+    )
 
