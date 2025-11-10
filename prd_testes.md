@@ -8,9 +8,9 @@
 - [x] Testes de chips (CRUD, integração básica com Baileys fake)
 - [x] Testes de dashboard (KPIs, séries históricas, atividade)
 - [x] Testes de relatórios (campanha, chips, financeiro, executivo, comparativo)
-- [ ] Testes de notificações in-app (rotas + serviço de unread)
-- [ ] Testes de logs de auditoria (listagem, filtros)
-- [ ] Testes do log de mensagens (filtros, paginação)
+- [x] Testes de notificações in-app (rotas + serviço de unread)
+- [x] Testes de logs de auditoria (listagem, filtros)
+- [x] Testes do log de mensagens (filtros, paginação)
 
 ## 2. Infraestrutura Assíncrona
 - [ ] Testes de Celery (disparo de tarefas de campanha/billing com Redis real em ambiente de teste)
@@ -25,8 +25,8 @@
 - [ ] Testes de formulários (billing, campanha wizard, perfil)
 
 ## 4. Integrações e Serviços Externos
-- [ ] Testes (mockados) do cliente Baileys simulando respostas/erros
-- [ ] Testes do gateway de pagamento fake (aprovações/falhas, assinaturas e compras)
+- [x] Testes (mockados) do cliente Baileys simulando respostas/erros
+- [x] Testes do gateway de pagamento fake (aprovações/falhas, assinaturas e compras)
 - [ ] Testes de webhooks (futuros) para campanhas/financeiro
 
 ## 5. Automação e Observabilidade de Testes
