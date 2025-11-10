@@ -1,7 +1,16 @@
 {
-  "status": "init",
+  "status": "commited",
+  "type": "frontend",
   "scope": "codebase",
-  "type": "backend",
-  "localEndpoint": "http://localhost:8000/",
-  "serverPort": 42939
+  "localEndpoint": "http://localhost:8000",
+  "executionArgs": {
+    "projectName": "whago",
+    "projectPath": "/home/liberai/whago",
+    "testIds": [],
+    "additionalInstruction": "",
+    "envs": {
+      "API_KEY": "sk-user-VPePQT_UVzSi5QXXUlXppZ7dAD2ffR2_frpWH_Q0mTsujbf7Fa9LQeUPqVw5ez2pkokkeF-inHZoH4kqtVifrKkPN7VmJFKoAIHErOZ_u4oYn-Xr8CK5g3COKVQIjH1dClc"
+    }
+  },
+  "proxy": "http://a861fc99-abc5-4158-a23f-02326442b51a:hmPmmy5tmFkLQX3qLJRLvZVPxNTghIS2@tun.testsprite.com:8080"
 }

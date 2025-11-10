@@ -1,0 +1,92 @@
+{
+  "meta": {
+    "project": "WHAGO - Plataforma de Mensagens em Massa via WhatsApp",
+    "date": "2025-11-04",
+    "prepared_by": "Automated PRD Generator"
+  },
+  "product_overview": "WHAGO é uma plataforma SaaS multi-usuário que possibilita o envio de mensagens em massa via WhatsApp, gerenciando múltiplos chips, campanhas, controle de créditos e oferecendo monitoramento em tempo real com funcionalidades avançadas para diferentes planos.",
+  "core_goals": [
+    "Permitir envio eficiente e escalável de mensagens em massa via WhatsApp.",
+    "Gerenciar múltiplos chips de WhatsApp com controle inteligente para evitar banimentos.",
+    "Implementar sistema de planos, créditos e billing para monetização do serviço.",
+    "Fornecer monitoramento em tempo real e relatórios detalhados para acompanhamento de campanhas.",
+    "Garantir segurança, conformidade com LGPD e proteção de dados dos usuários.",
+    "Oferecer suporte multi-usuário, API REST e integrações para clientes Enterprise."
+  ],
+  "key_features": [
+    "Sistema completo de autenticação JWT com refresh tokens, cookies httpOnly e recuperação de senha.",
+    "Gerenciamento de chips com conexão via QR Code em tempo real por WebSocket, estados diversos e controle detalhado.",
+    "Sistema de campanhas com upload de contatos (CSV, TXT, Excel), editor de mensagens com variáveis dinâmicas e envio assíncrono via Celery.",
+    "Rotação automática inteligente de chips com estratégias configuráveis (Round Robin, saúde, horário, aleatória).",
+    "Maturação automatizada de chips para evitar banimentos com fases personalizáveis e monitoramento de saúde (Business/Enterprise).",
+    "Sistema de planos e créditos com limites, renovação, compras avulsas e controle rígido de consumo.",
+    "Dashboard analítico com KPIs, gráficos de desempenho e logs de atividades recentes.",
+    "Notificações in-app e por email, além de webhooks configuráveis para integrações Enterprise.",
+    "API REST completa para chips, campanhas, mensagens, contatos, usuário e relatórios com autenticação por API Key.",
+    "Infraestrutura Docker com escalabilidade e monitoramento via Prometheus, Grafana, Sentry e ELK."
+  ],
+  "user_flow_summary": [
+    "Usuário se registra com validação de dados, recebe créditos iniciais e acesso ao dashboard.",
+    "Usuário adiciona chips via QR Code com atualização em tempo real e monitora status e métricas.",
+    "Criação de campanhas em wizard dividido em etapas: informações básicas, upload de contatos, edição da mensagem e configurações de envio.",
+    "Envio de campanhas inicia processamento assíncrono de mensagens com monitoramento em tempo real via WebSocket.",
+    "Usuário acompanha resultados no dashboard e detalhes de campanhas, acessa relatórios e recebe notificações.",
+    "Gerencia plano, créditos, pagamentos e configurações pessoais via interface amigável e segura.",
+    "Usuários Enterprise configuram webhooks, usam API REST e aproveitam funcionalidades avançadas como multi-usuário e white-label."
+  ],
+  "validation_criteria": [
+    "Todos endpoints autenticados e autorizados, com tokens JWT e checagem de limites por plano.",
+    "Validação rigorosa de dados de usuários, contatos e campanhas conforme regras de negócio definidas.",
+    "Monitoramento de uso e saúde dos chips com alertas automáticos e logs de auditoria registrados.",
+    "Testes unitários e integração cobrindo autenticação, roteamento, gerenciamento de campanhas e chips.",
+    "Desempenho backend com latência p95 abaixo de 200ms e taxa de erro inferior a 0.1%.",
+    "Processamento assíncrono de envios com Celery garantindo entrega conforme limite de créditos e planos.",
+    "Interface responsiva com feedbacks visuais para estados de carregamento, erro e sucesso.",
+    "Conformidade com LGPD, políticas de segurança, criptografia de dados sensíveis e proteção contra ataques comuns.",
+    "Cobertura dos fluxos críticos: registro, login, gestão de chips, envio de campanhas, relatórios e billing.",
+    "Documentação da API atualizada com Swagger e exemplos para facilitar integração externa."
+  ],
+  "code_summary": {
+    "tech_stack": [
+      {
+        "area": "backend",
+        "technologies": [
+          "Python 3.11",
+          "FastAPI",
+          "SQLAlchemy (async)",
+          "Alembic",
+          "Pydantic v2",
+          "Celery",
+          "Redis",
+          "PostgreSQL",
+          "Uvicorn"
+        ]
+      },
+      {
+        "area": "whatsapp_engine",
+        "technologies": [
+          "Node.js",
+          "Baileys",
+          "Express"
+        ]
+      },
+      {
+        "area": "infrastructure",
+        "technologies": [
+          "Docker",
+          "Docker Compose"
+        ]
+      }
+    ],
+    "features": [
+      "Autenticação JWT com refresh tokens, cookies httpOnly e recuperação de senha.",
+      "Modelos de usuário, planos, créditos, transações, chips e campanhas alinhados ao PRD.",
+      "Gerenciamento de chips (criação, QR em tempo real via WebSocket, desconexão e exclusão).",
+      "Sistema de campanhas com upload de contatos, disparo assíncrono via Celery/Baileys, rate limits por plano e acompanhamento em WebSocket.",
+      "Controle de créditos com ledger e travas para limites de plano/mensagens.",
+      "Integração com serviço Baileys para sessões WhatsApp.",
+      "Suporte a Redis para filas/caches e PostgreSQL como banco principal.",
+      "Configuração de infraestrutura Docker para backend, Redis, Postgres, Baileys e worker Celery."
+    ]
+  }
+}

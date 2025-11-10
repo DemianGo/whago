@@ -30,6 +30,7 @@ from app.models.campaign import (
 from app.models.credit import CreditLedger, CreditSource
 from app.models.user import User
 from app.services.baileys_client import get_baileys_client
+from app.services.webhook_service import WebhookEvent, WebhookService
 
 logger = logging.getLogger("whago.campaign.tasks")
 
@@ -53,6 +54,40 @@ def _publish_update(campaign_id: UUID, payload: dict) -> None:
         redis_client.publish(channel, json.dumps(payload, default=str))
     finally:
         redis_client.close()
+
+
+async def _dispatch_campaign_webhook(
+    session: AsyncSession,
+    campaign: Campaign,
+    status: CampaignStatus,
+    metadata: dict,
+) -> None:
+    user = await session.get(User, campaign.user_id)
+    if user is None:
+        return
+    await session.refresh(user, attribute_names=["plan"])
+    event_map = {
+        CampaignStatus.COMPLETED: WebhookEvent.CAMPAIGN_COMPLETED,
+        CampaignStatus.CANCELLED: WebhookEvent.CAMPAIGN_CANCELLED,
+    }
+    event = event_map.get(status)
+    if event is None:
+        return
+    payload = {
+        "campaign_id": str(campaign.id),
+        "name": campaign.name,
+        "status": status.value,
+        "metadata": metadata,
+        "stats": {
+            "total_contacts": campaign.total_contacts,
+            "sent": campaign.sent_count,
+            "delivered": campaign.delivered_count,
+            "read": campaign.read_count,
+            "failed": campaign.failed_count,
+        },
+    }
+    service = WebhookService(session)
+    await service.dispatch(user_id=user.id, event=event, payload=payload)
 
 
 def _render_message(
@@ -137,17 +172,21 @@ async def _prepare_campaign_messages(
 
 
 async def _update_campaign_status(
-    session,
+    session: AsyncSession,
     campaign_id: UUID,
     status: CampaignStatus,
     **metadata,
 ) -> None:
+    campaign = await session.get(Campaign, campaign_id)
+    if campaign is None:
+        return
     await session.execute(
         update(Campaign)
         .where(Campaign.id == campaign_id)
         .values(status=status, **metadata)
     )
     await session.commit()
+    await session.refresh(campaign)
     _publish_update(
         campaign_id,
         {
@@ -156,6 +195,7 @@ async def _update_campaign_status(
             "metadata": metadata,
         },
     )
+    await _dispatch_campaign_webhook(session, campaign, status, metadata)
 
 
 async def _deduct_user_credit(

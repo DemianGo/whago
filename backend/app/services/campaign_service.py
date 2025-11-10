@@ -33,6 +33,7 @@ from ..models.plan import PlanTier
 from ..models.user import User
 from .notification_service import NotificationService, NotificationType
 from .audit_service import AuditService
+from .webhook_service import WebhookEvent, WebhookService
 from ..schemas.campaign import (
     CampaignActionResponse,
     CampaignCreate,
@@ -381,9 +382,22 @@ class CampaignService:
         start_campaign_dispatch.delay(str(campaign.id))
         await self._publish_status(campaign.id, CampaignStatus.RUNNING, started_at=now)
         await self.session.refresh(campaign)
+        await self._emit_webhook_event(
+            db_user,
+            WebhookEvent.CAMPAIGN_STARTED,
+            {
+                "campaign_id": str(campaign.id),
+                "name": campaign.name,
+                "status": campaign.status.value,
+                "total_contacts": campaign.total_contacts,
+                "remaining_to_send": remaining_to_send,
+                "started_at": campaign.started_at.isoformat() if campaign.started_at else None,
+            },
+        )
         return CampaignActionResponse(status=campaign.status, message="Campanha iniciada.")
 
     async def pause_campaign(self, user: User, campaign_id: UUID) -> CampaignActionResponse:
+        db_user = await self._get_user_with_plan(user)
         campaign = await self._get_user_campaign(user, campaign_id)
         if campaign.status != CampaignStatus.RUNNING:
             raise HTTPException(
@@ -393,6 +407,7 @@ class CampaignService:
 
         campaign.status = CampaignStatus.PAUSED
         audit = AuditService(self.session)
+        paused_at = datetime.now(timezone.utc)
         await audit.record(
             user_id=user.id,
             action="campaign.pause",
@@ -403,11 +418,22 @@ class CampaignService:
             auto_commit=False,
         )
         await self.session.commit()
-        await self._publish_status(campaign.id, CampaignStatus.PAUSED, paused_at=datetime.now(timezone.utc))
+        await self._publish_status(campaign.id, CampaignStatus.PAUSED, paused_at=paused_at)
         await self.session.refresh(campaign)
+        await self._emit_webhook_event(
+            db_user,
+            WebhookEvent.CAMPAIGN_PAUSED,
+            {
+                "campaign_id": str(campaign.id),
+                "name": campaign.name,
+                "status": campaign.status.value,
+                "paused_at": paused_at.isoformat(),
+            },
+        )
         return CampaignActionResponse(status=campaign.status, message="Campanha pausada.")
 
     async def cancel_campaign(self, user: User, campaign_id: UUID) -> CampaignActionResponse:
+        db_user = await self._get_user_with_plan(user)
         campaign = await self._get_user_campaign(user, campaign_id)
         if campaign.status not in {CampaignStatus.RUNNING, CampaignStatus.PAUSED, CampaignStatus.SCHEDULED}:
             raise HTTPException(
@@ -446,6 +472,17 @@ class CampaignService:
         await self.session.commit()
         await self._publish_status(campaign.id, CampaignStatus.CANCELLED, cancelled_at=now)
         await self.session.refresh(campaign)
+        await self._emit_webhook_event(
+            db_user,
+            WebhookEvent.CAMPAIGN_CANCELLED,
+            {
+                "campaign_id": str(campaign.id),
+                "name": campaign.name,
+                "status": campaign.status.value,
+                "cancelled_at": now.isoformat(),
+                "failed_messages": affected,
+            },
+        )
         return CampaignActionResponse(status=campaign.status, message="Campanha cancelada.")
 
     async def list_messages(
@@ -606,6 +643,18 @@ class CampaignService:
             await redis.publish(channel, json.dumps(payload, default=str))
         except Exception as exc:  # noqa: BLE001
             logger.warning("Falha ao publicar evento da campanha %s: %s", campaign_id, exc)
+
+    async def _emit_webhook_event(
+        self,
+        user: User,
+        event: WebhookEvent,
+        payload: dict,
+    ) -> None:
+        features = self._get_plan_features(user)
+        if not features.get("webhooks"):
+            return
+        service = WebhookService(self.session)
+        await service.dispatch(user_id=user.id, event=event, payload=payload)
 
     async def _publish_status(
         self,

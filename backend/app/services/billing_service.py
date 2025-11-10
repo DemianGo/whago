@@ -34,6 +34,7 @@ from ..schemas.billing import (
     TransactionResponse,
 )
 from .payment_gateway import PaymentGatewayClient, PaymentGatewayError
+from .webhook_service import WebhookEvent, WebhookService
 from .audit_service import AuditService
 
 CREDIT_PACKAGES = {
@@ -469,6 +470,21 @@ class BillingService:
                 payment_attempt.response_code = result.response_code
                 payment_attempt.failure_reason = None
                 await self._issue_invoice(user, transaction, status=InvoiceStatus.PAID)
+                await self._emit_webhook_event(
+                    user,
+                    WebhookEvent.PAYMENT_SUCCEEDED,
+                    {
+                        "transaction_id": str(transaction.id),
+                        "amount": float(transaction.amount or 0),
+                        "plan": user.plan.slug if user.plan else None,
+                        "payment_method": transaction.payment_method,
+                        "reference_code": transaction.reference_code,
+                        "attempt_number": attempt_number,
+                        "processed_at": transaction.processed_at.isoformat()
+                        if transaction.processed_at
+                        else None,
+                    },
+                )
             else:
                 transaction.status = TransactionStatus.FAILED
                 transaction.attempt_count = attempt_number
@@ -512,5 +528,18 @@ class BillingService:
         self.session.add(invoice)
         await self.session.flush()
         return invoice
+
+    async def _emit_webhook_event(
+        self,
+        user: User,
+        event: WebhookEvent,
+        payload: dict,
+    ) -> None:
+        await self.session.refresh(user, attribute_names=["plan"])
+        features = user.plan.features if user.plan and user.plan.features else {}
+        if not features.get("webhooks"):
+            return
+        service = WebhookService(self.session)
+        await service.dispatch(user_id=user.id, event=event, payload=payload)
 
 

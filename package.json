@@ -1,5 +1,19 @@
 {
+  "name": "whago",
+  "private": true,
+  "scripts": {
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "playwright:install": "playwright install --with-deps"
+  },
   "dependencies": {
-    "morgan": "^1.10.1"
+    "morgan": "^1.10.1",
+    "pg": "^8.11.3",
+    "uuid": "^9.0.1"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.41.2",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.2"
   }
 }

@@ -62,7 +62,7 @@ def create_application() -> FastAPI:
     app.include_router(audit.router)
     app.include_router(messages.router)
 
-    static_dir = Path(__file__).resolve().parents[2] / "frontend" / "static"
+    static_dir = Path(__file__).resolve().parents[1] / "frontend" / "static"
     if static_dir.exists():
         app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
 

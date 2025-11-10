@@ -1,0 +1,517 @@
+[
+  {
+    "id": "TC001",
+    "title": "User Registration with Valid Data",
+    "description": "Verify that a user can successfully register with valid email, strong password, valid phone number, and required documents based on the selected plan.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the registration form page."
+      },
+      {
+        "type": "action",
+        "description": "Input a valid email address, a strong password meeting complexity requirements, a valid phone number, and upload required documents."
+      },
+      {
+        "type": "action",
+        "description": "Submit the registration form."
+      },
+      {
+        "type": "assertion",
+        "description": "Check that the registration is successful and the user receives initial credits."
+      }
+    ]
+  },
+  {
+    "id": "TC002",
+    "title": "User Registration with Invalid Email",
+    "description": "Ensure registration fails if the email format is invalid.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the registration form page."
+      },
+      {
+        "type": "action",
+        "description": "Input an invalid email format with other valid details."
+      },
+      {
+        "type": "action",
+        "description": "Submit the registration form."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that the system shows an appropriate validation error for the email field."
+      }
+    ]
+  },
+  {
+    "id": "TC003",
+    "title": "User Login with Valid Credentials",
+    "description": "Verify that users can log in successfully using correct credentials and receive a valid JWT token.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the login page."
+      },
+      {
+        "type": "action",
+        "description": "Enter valid email and password credentials."
+      },
+      {
+        "type": "action",
+        "description": "Click the login button."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify login is successful and a JWT token is issued and stored."
+      }
+    ]
+  },
+  {
+    "id": "TC004",
+    "title": "User Login with Invalid Credentials",
+    "description": "Ensure that login fails gracefully with invalid username or password.",
+    "category": "error handling",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the login page."
+      },
+      {
+        "type": "action",
+        "description": "Enter invalid email or password."
+      },
+      {
+        "type": "action",
+        "description": "Click the login button."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the login attempt fails with an appropriate error message."
+      }
+    ]
+  },
+  {
+    "id": "TC005",
+    "title": "JWT Token Expiry and Refresh",
+    "description": "Verify that JWT tokens expire as expected and can be refreshed correctly to maintain session.",
+    "category": "security",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Login to obtain a valid JWT token."
+      },
+      {
+        "type": "action",
+        "description": "Wait until the token expiration time passes."
+      },
+      {
+        "type": "action",
+        "description": "Attempt to access a protected resource with the expired token."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that access is denied due to token expiration."
+      },
+      {
+        "type": "action",
+        "description": "Use the refresh token endpoint to obtain a new JWT token."
+      },
+      {
+        "type": "action",
+        "description": "Access the protected resource again with the refreshed token."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify access is granted with the new token."
+      }
+    ]
+  },
+  {
+    "id": "TC006",
+    "title": "Add Chip via QR Code Scan - Business Plan Limit",
+    "description": "Verify that users with BUSINESS plan can add chips up to the allowed limit and receive proper error on exceeding the limit.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Login as a BUSINESS plan user."
+      },
+      {
+        "type": "action",
+        "description": "Navigate to the add chip page and scan QR code for chip registration until limit is reached."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify all allowed chips are successfully added and each chip status is updated correctly."
+      },
+      {
+        "type": "action",
+        "description": "Attempt to add one more chip beyond the plan limit."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that the system presents an error preventing chip addition beyond plan limits."
+      }
+    ]
+  },
+  {
+    "id": "TC007",
+    "title": "Chip Status Monitoring Real-Time",
+    "description": "Verify real-time status updates of connected chips on the chips management dashboard.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Login and navigate to the chips management page."
+      },
+      {
+        "type": "action",
+        "description": "Observe chip statuses immediately after adding, disconnecting, and reconnecting chips."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that the UI reflects status changes in real-time without manual page refresh."
+      }
+    ]
+  },
+  {
+    "id": "TC008",
+    "title": "Chip Maturation Automatic Heat-up Process (BUSINESS/ENTERPRISE)",
+    "description": "Validate that the chip maturation process heats up chips gradually as per configuration to minimize ban risks.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Login as BUSINESS or ENTERPRISE user with chips assigned."
+      },
+      {
+        "type": "action",
+        "description": "Start chip maturation process."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify chips increase messaging activity gradually over time according to system schedule."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify no chip is assigned excessive load initially."
+      }
+    ]
+  },
+  {
+    "id": "TC009",
+    "title": "Chip Rotation Automatic Distribution",
+    "description": "Verify the automated chip rotation and distribution strategy works correctly with message sending in campaigns.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Create a campaign for message sending with multiple chips active."
+      },
+      {
+        "type": "action",
+        "description": "Configure rotation parameters and start the campaign."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that messages are distributed evenly among chips according to rotation strategy."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that chip overload or ban risks are minimized by rotation."
+      }
+    ]
+  },
+  {
+    "id": "TC010",
+    "title": "Create Campaign with Contact Import and Message Editor",
+    "description": "Test campaign creation process including import of contacts, use of message editor with variables, and media attachment.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Login and navigate to campaign creation wizard."
+      },
+      {
+        "type": "action",
+        "description": "Fill in basic data for the campaign."
+      },
+      {
+        "type": "action",
+        "description": "Import contacts via CSV or manual input."
+      },
+      {
+        "type": "action",
+        "description": "Use message editor to compose message with variable placeholders and upload media files."
+      },
+      {
+        "type": "action",
+        "description": "Complete configuration and confirm campaign creation."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify campaign is stored with accurate data, contacts, and message content."
+      }
+    ]
+  },
+  {
+    "id": "TC011",
+    "title": "Campaign Lifecycle: Start, Pause, Cancel, Monitor",
+    "description": "Validate the full lifecycle of a campaign including starting, pausing, cancelling and monitoring status with instant feedback.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to an existing created campaign."
+      },
+      {
+        "type": "action",
+        "description": "Start the campaign and verify delivery begins."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify real-time monitoring reflects campaign progress and sent message count."
+      },
+      {
+        "type": "action",
+        "description": "Pause the campaign."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that sending halts and status updates accordingly."
+      },
+      {
+        "type": "action",
+        "description": "Resume the campaign."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify message sending resumes correctly."
+      },
+      {
+        "type": "action",
+        "description": "Cancel the campaign."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify campaign is marked cancelled and sending stops permanently."
+      }
+    ]
+  },
+  {
+    "id": "TC012",
+    "title": "Sending Messages Respecting Plan Limits and Intervals",
+    "description": "Check that messages are sent adhering to the configured minimum interval and limits set by the user's subscription plan.",
+    "category": "functional",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Create a campaign with message sending settings specifying intervals."
+      },
+      {
+        "type": "action",
+        "description": "Start the campaign and monitor sending behavior."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify that messages are spaced no closer than the minimum interval."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify sending does not exceed the user's plan message limits."
+      }
+    ]
+  },
+  {
+    "id": "TC013",
+    "title": "Report Generation with Multiple Export Formats",
+    "description": "Verify that reports can be generated, viewed, and exported accurately in PDF, CSV, Excel, and JSON formats.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Navigate to the reports section."
+      },
+      {
+        "type": "action",
+        "description": "Select a report type and configure parameters."
+      },
+      {
+        "type": "action",
+        "description": "Generate the report and export in PDF, CSV, Excel, and JSON formats."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the exported files contain accurate and complete data as displayed."
+      }
+    ]
+  },
+  {
+    "id": "TC014",
+    "title": "In-App and Email Notification Delivery",
+    "description": "Verify notifications triggered for important events such as low credits, chip status changes, and campaign updates are shown in-app and sent via email when configured.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Trigger events like credits falling below threshold or campaign completion."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify corresponding notifications appear in the in-app notification center."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify notification emails are received in configured email inbox."
+      }
+    ]
+  },
+  {
+    "id": "TC015",
+    "title": "Webhook Integration for ENTERPRISE Plan",
+    "description": "Verify webhook events are sent correctly for configured triggers for ENTERPRISE users.",
+    "category": "functional",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Login as ENTERPRISE user and configure webhook URL and events."
+      },
+      {
+        "type": "action",
+        "description": "Trigger the configured events, such as campaign start or completion."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify webhooks are dispatched with correct payloads and status code 200 responses are handled."
+      }
+    ]
+  },
+  {
+    "id": "TC016",
+    "title": "API REST Authentication and Rate Limiting",
+    "description": "Test that the REST API requires API Key authentication and enforces rate limits properly for ENTERPRISE plan.",
+    "category": "security",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Make an API request with a valid API Key."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the API responds successfully with requested data."
+      },
+      {
+        "type": "action",
+        "description": "Make an API request with invalid or missing API Key."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify access is denied with appropriate error."
+      },
+      {
+        "type": "action",
+        "description": "Perform rapid successive API calls exceeding rate limits."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify the API rejects requests beyond rate limits with rate limit error."
+      }
+    ]
+  },
+  {
+    "id": "TC017",
+    "title": "Data Security and Encryption at Rest",
+    "description": "Verify that sensitive user data and credentials are stored encrypted in the database and secure against unauthorized access.",
+    "category": "security",
+    "priority": "High",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Retrieve database records of user accounts."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify password hashes and sensitive fields are stored encrypted and not in plain text."
+      }
+    ]
+  },
+  {
+    "id": "TC018",
+    "title": "Frontend Responsiveness and Accessibility",
+    "description": "Test the web interface responsiveness on multiple device screen sizes and accessibility of key components with keyboard and screen readers.",
+    "category": "ui",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Open key frontend pages on desktops, tablets, and smartphones."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify layout adjusts correctly and remains fully functional on all screen sizes."
+      },
+      {
+        "type": "action",
+        "description": "Navigate using keyboard controls only."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify all interactive components are accessible and keyboard focus is visible and logical."
+      },
+      {
+        "type": "action",
+        "description": "Use a screen reader to navigate UI elements."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify appropriate ARIA attributes and labels are present for screen reader comprehension."
+      }
+    ]
+  },
+  {
+    "id": "TC019",
+    "title": "Loading, Success, and Error UI States",
+    "description": "Verify that the UI consistently shows visual feedback states for loading, success, and error in the user flows.",
+    "category": "ui",
+    "priority": "Medium",
+    "steps": [
+      {
+        "type": "action",
+        "description": "Trigger actions like form submission, data fetching, and message sending."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify loading indicators appear during processing."
+      },
+      {
+        "type": "assertion",
+        "description": "Verify success messages and confirmation states are shown on completion."
+      },
+      {
+        "type": "assertion",
+        "description": "Force error states (e.g., network failure) and verify error messages are displayed clearly."
+      }
+    ]
+  }
+]

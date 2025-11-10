@@ -1361,8 +1361,8 @@ Somos da {{empresa}} e temos uma proposta especial para você!
    - [x] Implementar serviços e rotas de campanhas (criar/listar/detalhar/start/pausar)
    - [x] Configurar fila de envio (Celery/worker) e WebSocket de acompanhamento
    - [x] Integrar disparo real com Baileys, limites por plano e monitoramento em tempo real
-6. **Semana 11**: Testes, correções, ajustes de UX
-7. **Semana 12**: Deploy, documentação, onboarding
+   - [x] Construir camada visual completa (dashboard, chips, campanhas, billing, configurações)
+   - [x] Disponibilizar relatórios avançados com exportação (CSV/Excel/PDF) para campanhas, chips, finanças e relatório executivo
 
 **Equipe Mínima:**
 - 1 Fullstack Developer (Python + Node.js + Frontend)

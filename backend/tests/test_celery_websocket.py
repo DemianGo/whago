@@ -4,17 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import json
-import time
+import secrets
 from datetime import datetime, timedelta, timezone
 from uuid import UUID, uuid4
 
 import pytest
-import httpx
 from redis.asyncio import Redis
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 import websockets
+
+from jose import jwt
 
 from app.config import settings
 from app.database import AsyncSessionLocal, DATABASE_URL
@@ -22,6 +23,7 @@ from app.models.plan import Plan
 from app.models.transaction import Transaction, TransactionStatus, TransactionType
 from app.models.user import User
 from app.services.billing_service import BillingService
+from app.services.auth_service import pwd_context
 from tests.conftest import SYNC_ENGINE
 
 
@@ -109,27 +111,50 @@ async def _fetch_user(user_id: UUID) -> User:
     return await asyncio.to_thread(_fetch_user_sync, user_id)
 
 
-async def _wait_for_api(base_url: str = "http://localhost:8000", timeout: float = 30.0) -> None:
-    start = time.monotonic()
-    while True:
-        try:
-            async with httpx.AsyncClient(base_url=base_url, timeout=2.0) as client:
-                response = await client.get("/health")
-            if response.status_code < 500:
-                return
-        except Exception:
-            pass
-        if time.monotonic() - start > timeout:
-            raise TimeoutError("API não respondeu dentro do tempo limite.")
-        await asyncio.sleep(0.5)
+def _encode_access_token(user_id: UUID) -> str:
+    now = datetime.utcnow()
+    payload = {
+        "sub": str(user_id),
+        "type": "access",
+        "exp": now + timedelta(minutes=settings.jwt_access_token_expire_minutes),
+        "iat": now,
+        "jti": secrets.token_urlsafe(16),
+    }
+    return jwt.encode(payload, settings.jwt_secret_key, algorithm=settings.jwt_algorithm)
+
+
+async def _register_user_direct(payload: dict[str, str | None]) -> tuple[UUID, str]:
+    normalized_email = payload["email"].lower()
+    plan_slug = (payload.get("plan_slug") or "free").lower()
+
+    def _create() -> UUID:
+        with Session(SYNC_ENGINE) as session:
+            plan = session.execute(select(Plan).where(Plan.slug == plan_slug)).scalar_one()
+            user = User(
+                name=payload["name"],
+                email=normalized_email,
+                password_hash=pwd_context.hash(payload["password"]),
+                phone=payload["phone"],
+                company_name=payload.get("company_name"),
+                document=payload.get("document"),
+                plan_id=plan.id,
+                is_active=True,
+                is_verified=True,
+            )
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+            return user.id
+
+    user_id = await asyncio.to_thread(_create)
+    access_token = _encode_access_token(user_id)
+    return user_id, access_token
 
 
 @pytest.mark.asyncio
-async def test_billing_celery_cycle_processes_subscription(register_user) -> None:
-    await _wait_for_api()
-    response, _ = await register_user()
-    assert response.status_code == 201, response.text
-    user_id = UUID(response.json()["user"]["id"])
+async def test_billing_celery_cycle_processes_subscription() -> None:
+    payload = _random_user_payload()
+    user_id, _ = await _register_user_direct(payload)
 
     await _prepare_subscription_user(user_id)
     await _execute_billing_cycle()
@@ -165,15 +190,13 @@ async def _create_campaign_async(client, headers: dict[str, str]) -> UUID:
 
 
 @pytest.mark.asyncio
-async def test_campaign_websocket_receives_updates(register_user, async_client_factory) -> None:
-    await _wait_for_api()
-    response, _ = await register_user()
-    assert response.status_code == 201, response.text
-    tokens = response.json()["tokens"]
-    headers = {"Authorization": f"Bearer {tokens['access_token']}"}
+async def test_campaign_websocket_receives_updates(async_client_factory) -> None:
+    payload = _random_user_payload()
+    user_id, access_token = await _register_user_direct(payload)
+    headers = {"Authorization": f"Bearer {access_token}"}
 
-    async with async_client_factory() as client:
-        campaign_id = await _create_campaign_async(client, headers)
+    async with async_client_factory(headers=headers) as http_client:
+        campaign_id = await _create_campaign_async(http_client, headers)
 
     ws_headers = [(name, value) for name, value in headers.items()]
     async with websockets.connect(

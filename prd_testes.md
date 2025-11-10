@@ -13,21 +13,21 @@
 - [x] Testes do log de mensagens (filtros, paginação)
 
 ## 2. Infraestrutura Assíncrona
-- [ ] Testes de Celery (disparo de tarefas de campanha/billing com Redis real em ambiente de teste)
-- [ ] Testes de WebSocket (acompanhamento de campanhas em tempo real)
-- [ ] Testes de publicação de eventos (Redis Pub/Sub para notificações/dashboard)
+- [x] Testes de Celery (disparo de tarefas de campanha/billing com Redis real em ambiente de teste)
+- [x] Testes de WebSocket (acompanhamento de campanhas em tempo real)
+- [x] Testes de publicação de eventos (Redis Pub/Sub para notificações/dashboard)
 
 ## 3. Frontend (UI)
-- [ ] Suite E2E (Playwright/Cypress) cobrindo login, dashboard, campanhas, mensagens, relatórios
-- [ ] Testes de download/export (CSV/XLSX/PDF) via navegador
-- [ ] Testes de responsividade (smoke automático com viewport múltipla)
-- [ ] Testes de notificações (dropdown, página dedicada, marcação de lidas)
-- [ ] Testes de formulários (billing, campanha wizard, perfil)
+- [x] Suite E2E (Playwright/Cypress) cobrindo login, dashboard, campanhas, mensagens, relatórios
+- [x] Testes de download/export (CSV/XLSX/PDF) via navegador
+- [x] Testes de responsividade (smoke automático com viewport múltipla)
+- [x] Testes de notificações (dropdown, página dedicada, marcação de lidas)
+- [x] Testes de formulários (billing, campanha wizard, perfil)
 
 ## 4. Integrações e Serviços Externos
 - [x] Testes (mockados) do cliente Baileys simulando respostas/erros
 - [x] Testes do gateway de pagamento fake (aprovações/falhas, assinaturas e compras)
-- [ ] Testes de webhooks (futuros) para campanhas/financeiro
+- [x] Testes de webhooks (futuros) para campanhas/financeiro
 
 ## 5. Automação e Observabilidade de Testes
 - [ ] Pipeline CI (GitHub Actions/GitLab) rodando pytest + lint + cobertura mínima

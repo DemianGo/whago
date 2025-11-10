@@ -35,6 +35,8 @@ services:
       dockerfile: Dockerfile
     container_name: whago-backend
     restart: always
+    environment:
+      UVICORN_RELOAD_FLAG: "${UVICORN_RELOAD_FLAG:-}"
     depends_on:
       postgres:
         condition: service_healthy
@@ -47,8 +49,9 @@ services:
     volumes:
       - ./backend:/app
       - ./backend/.env:/app/.env
+      - ./frontend:/app/frontend
     command: >
-      sh -c "uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload --reload-exclude tests"
+      sh -c "uvicorn app.main:app --host 0.0.0.0 --port 8000 $$UVICORN_RELOAD_FLAG"
 
   celery:
     build:

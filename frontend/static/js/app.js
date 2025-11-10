@@ -378,12 +378,30 @@ async function loadDashboard() {
   const summaryResp = await apiFetch("/dashboard/summary");
   if (summaryResp?.ok) {
     const data = await summaryResp.json();
-    selectors.summaryCredits()?.innerText = `${data.credits_available} créditos`;
-    selectors.summaryToday()?.innerText = data.messages_today;
-    selectors.summaryTodayVariation()?.innerText = displayVariation(data.messages_today_variation);
-    selectors.summaryMonth()?.innerText = data.messages_month;
-    selectors.summaryMonthVariation()?.innerText = displayVariation(data.messages_month_variation);
-    selectors.summarySuccess()?.innerText = `${data.success_rate.toFixed(2)}%`;
+    const creditsEl = selectors.summaryCredits();
+    if (creditsEl) {
+      creditsEl.innerText = `${data.credits_available} créditos`;
+    }
+    const todayEl = selectors.summaryToday();
+    if (todayEl) {
+      todayEl.innerText = data.messages_today;
+    }
+    const todayVarEl = selectors.summaryTodayVariation();
+    if (todayVarEl) {
+      todayVarEl.innerText = displayVariation(data.messages_today_variation);
+    }
+    const monthEl = selectors.summaryMonth();
+    if (monthEl) {
+      monthEl.innerText = data.messages_month;
+    }
+    const monthVarEl = selectors.summaryMonthVariation();
+    if (monthVarEl) {
+      monthVarEl.innerText = displayVariation(data.messages_month_variation);
+    }
+    const successEl = selectors.summarySuccess();
+    if (successEl) {
+      successEl.innerText = `${data.success_rate.toFixed(2)}%`;
+    }
   }
 
   const trendResp = await apiFetch("/dashboard/messages-trend");
@@ -989,4 +1007,6 @@ document.addEventListener("DOMContentLoaded", async () => {
   } else {
     clearTokens();
   }
+
+  globalThis.__WHAGO_READY = true;
 });
