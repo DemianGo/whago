@@ -109,76 +109,10 @@
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', () => {
-    loadGateways();
-});
-
-async function loadGateways() {
-    const container = document.getElementById('gatewaysContainer');
-    container.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>';
-    
-    try {
-        const response = await adminFetch('/admin/gateways');
-        if (!response?.ok) throw new Error();
-        
-        const gateways = await response.json();
-        
-        let html = '<div style="display: grid; gap: 1.5rem;">';
-        
-        gateways.forEach(gw => {
-            const statusBadge = gw.is_enabled 
-                ? '<span class="badge badge-success">Habilitado</span>'
-                : '<span class="badge badge-danger">Desabilitado</span>';
-            
-            const modeBadge = gw.is_active_mode_production
-                ? '<span class="badge badge-danger">PRODUÇÃO</span>'
-                : '<span class="badge badge-warning">SANDBOX</span>';
-            
-            const icons = {
-                'mercadopago': '💳',
-                'paypal': '🅿️',
-                'stripe': '💠'
-            };
-            
-            html += `
-                <div style="border: 2px solid ${gw.is_enabled ? '#48bb78' : '#e2e8f0'}; border-radius: 12px; padding: 1.5rem;">
-                    <div style="display: flex; justify-content: space-between; align-items: center;">
-                        <div>
-                            <h3 style="margin: 0 0 0.5rem 0; font-size: 1.5rem;">
-                                ${icons[gw.gateway] || '💳'} ${gw.name}
-                            </h3>
-                            <div style="display: flex; gap: 0.5rem;">
-                                ${statusBadge}
-                                ${modeBadge}
-                            </div>
-                        </div>
-                        <div>
-                            <button class="btn btn-secondary" onclick="viewGateway('${gw.gateway}')" style="margin-right: 0.5rem;">
-                                <i class="fas fa-eye"></i> Ver
-                            </button>
-                        </div>
-                    </div>
-                    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #e2e8f0;">
-                        <small style="color: #718096;">
-                            Gateway: <code>${gw.gateway}</code><br>
-                            Criado em: ${new Date(gw.created_at).toLocaleDateString('pt-BR')}
-                        </small>
-                    </div>
-                </div>
-            `;
-        });
-        
-        html += '</div>';
-        container.innerHTML = html;
-        
-    } catch (error) {
-        console.error('Erro:', error);
-        container.innerHTML = '<p style="text-align: center; color: #f56565;">Erro ao carregar gateways.</p>';
+    if (typeof loadGateways === 'function') {
+        loadGateways();
     }
-}
-
-function viewGateway(gateway) {
-    alert(`Configuração do ${gateway}\n\nPara editar as credenciais, use variáveis de ambiente ou o banco de dados diretamente.\n\nEm breve teremos interface de edição completa!`);
-}
+});
 </script>
 {% endblock %}
 

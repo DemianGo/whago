@@ -8,9 +8,14 @@
 <div class="admin-card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
         <h3 style="margin: 0;">Planos de Assinatura</h3>
-        <button class="btn btn-primary" onclick="loadPlans()">
-            <i class="fas fa-sync"></i> Atualizar
-        </button>
+        <div>
+            <button class="btn btn-success" onclick="openCreatePlanModal()" style="margin-right: 0.5rem;">
+                <i class="fas fa-plus"></i> Novo Plano
+            </button>
+            <button class="btn btn-primary" onclick="loadPlans()">
+                <i class="fas fa-sync"></i> Atualizar
+            </button>
+        </div>
     </div>
 
     <div id="plansContainer">
@@ -19,12 +24,56 @@
         </div>
     </div>
 </div>
+
+<!-- Modal Criar/Editar Plano -->
+<div id="planModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title" id="planModalTitle">Novo Plano</h3>
+            <button class="modal-close" onclick="closePlanModal()">&times;</button>
+        </div>
+        <form id="planForm">
+            <input type="hidden" id="planId">
+            
+            <div class="form-group">
+                <label class="form-label">Nome *</label>
+                <input type="text" id="planName" class="form-control" required>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Slug *</label>
+                <input type="text" id="planSlug" class="form-control" required>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Preço (R$) *</label>
+                <input type="number" id="planPrice" class="form-control" step="0.01" required>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Máximo de Chips *</label>
+                <input type="number" id="planMaxChips" class="form-control" required>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Mensagens/Mês *</label>
+                <input type="number" id="planMonthlyMessages" class="form-control" required>
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closePlanModal()">Cancelar</button>
+                <button type="submit" class="btn btn-success">Salvar</button>
+            </div>
+        </form>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     loadPlans();
+    document.getElementById('planForm').addEventListener('submit', handlePlanSubmit);
 });
 
 async function loadPlans() {
@@ -38,24 +87,22 @@ async function loadPlans() {
         const plans = await response.json();
         
         let html = '<table class="admin-table"><thead><tr>';
-        html += '<th>Nome</th><th>Slug</th><th>Preço</th><th>Chips</th><th>Mensagens/Mês</th><th>Status</th><th>Ações</th>';
+        html += '<th>Nome</th><th>Slug</th><th>Preço</th><th>Chips</th><th>Mensagens/Mês</th><th>Ações</th>';
         html += '</tr></thead><tbody>';
         
         plans.forEach(plan => {
-            const statusBadge = plan.is_active 
-                ? '<span class="badge badge-success">Ativo</span>'
-                : '<span class="badge badge-danger">Inativo</span>';
-            
             html += `<tr>
                 <td><strong>${plan.name}</strong></td>
                 <td><code>${plan.slug}</code></td>
                 <td>R$ ${parseFloat(plan.price).toFixed(2)}</td>
                 <td>${plan.max_chips}</td>
                 <td>${plan.monthly_messages.toLocaleString('pt-BR')}</td>
-                <td>${statusBadge}</td>
                 <td>
-                    <button class="btn btn-secondary" onclick="viewPlan(${plan.id})" style="padding: 0.25rem 0.5rem; font-size: 0.875rem;">
-                        <i class="fas fa-eye"></i>
+                    <button class="btn btn-primary btn-sm" onclick="editPlan(${plan.id})">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn btn-danger btn-sm" onclick="deletePlan(${plan.id}, '${plan.name}')">
+                        <i class="fas fa-trash"></i>
                     </button>
                 </td>
             </tr>`;
@@ -70,7 +117,14 @@ async function loadPlans() {
     }
 }
 
-async function viewPlan(planId) {
+function openCreatePlanModal() {
+    document.getElementById('planModalTitle').textContent = 'Novo Plano';
+    document.getElementById('planForm').reset();
+    document.getElementById('planId').value = '';
+    document.getElementById('planModal').classList.add('active');
+}
+
+async function editPlan(planId) {
     try {
         const response = await adminFetch('/admin/plans');
         if (!response?.ok) throw new Error();
@@ -80,12 +134,81 @@ async function viewPlan(planId) {
         
         if (!plan) throw new Error('Plano não encontrado');
         
-        const features = JSON.stringify(plan.features, null, 2);
-        alert(`📦 ${plan.name}\n\nPreço: R$ ${parseFloat(plan.price).toFixed(2)}/mês\nChips: ${plan.max_chips}\nMensagens: ${plan.monthly_messages}/mês\n\nFeatures:\n${features}`);
+        document.getElementById('planModalTitle').textContent = 'Editar Plano';
+        document.getElementById('planId').value = plan.id;
+        document.getElementById('planName').value = plan.name;
+        document.getElementById('planSlug').value = plan.slug;
+        document.getElementById('planPrice').value = plan.price;
+        document.getElementById('planMaxChips').value = plan.max_chips;
+        document.getElementById('planMonthlyMessages').value = plan.monthly_messages;
+        
+        document.getElementById('planModal').classList.add('active');
     } catch (error) {
-        showAlert('Erro ao carregar detalhes', 'error');
+        showAlert('Erro ao carregar plano', 'error');
     }
 }
+
+function closePlanModal() {
+    document.getElementById('planModal').classList.remove('active');
+}
+
+async function handlePlanSubmit(e) {
+    e.preventDefault();
+    
+    const planId = document.getElementById('planId').value;
+    const data = {
+        name: document.getElementById('planName').value,
+        slug: document.getElementById('planSlug').value,
+        price: parseFloat(document.getElementById('planPrice').value),
+        max_chips: parseInt(document.getElementById('planMaxChips').value),
+        monthly_messages: parseInt(document.getElementById('planMonthlyMessages').value)
+    };
+    
+    try {
+        const url = planId ? `/admin/plans/${planId}` : '/admin/plans';
+        const method = planId ? 'PUT' : 'POST';
+        
+        const response = await adminFetch(url, {
+            method,
+            body: JSON.stringify(data)
+        });
+        
+        if (!response?.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Erro ao salvar plano');
+        }
+        
+        showAlert('Plano salvo com sucesso!', 'success');
+        closePlanModal();
+        loadPlans();
+        
+    } catch (error) {
+        showAlert(error.message || 'Erro ao salvar plano', 'error');
+    }
+}
+
+async function deletePlan(planId, planName) {
+    if (!confirm(`Deseja realmente excluir o plano "${planName}"?`)) return;
+    
+    try {
+        const response = await adminFetch(`/admin/plans/${planId}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response?.ok) throw new Error('Erro ao excluir plano');
+        
+        showAlert('Plano excluído com sucesso!', 'success');
+        loadPlans();
+        
+    } catch (error) {
+        showAlert(error.message || 'Erro ao excluir plano', 'error');
+    }
+}
+
+window.openCreatePlanModal = openCreatePlanModal;
+window.editPlan = editPlan;
+window.closePlanModal = closePlanModal;
+window.deletePlan = deletePlan;
 </script>
 {% endblock %}
 

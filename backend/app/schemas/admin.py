@@ -97,12 +97,11 @@ class UserUpdateAdmin(BaseModel):
 class PlanCreateUpdate(BaseModel):
     name: str = Field(..., min_length=3, max_length=50)
     slug: str = Field(..., min_length=3, max_length=50)
-    tier: int
+    tier: str = "BUSINESS"
     price: float = Field(..., ge=0)
     max_chips: int = Field(..., ge=0)
     monthly_messages: int = Field(..., ge=0)
-    features: dict
-    is_active: bool = True
+    features: dict = {}
 
 
 # Coupon Schemas
@@ -111,9 +110,7 @@ class CouponBase(BaseModel):
     discount_type: str = Field(..., pattern="^(percentage|fixed)$")
     discount_value: float = Field(..., gt=0)
     max_uses: int | None = Field(None, ge=1)
-    valid_from: datetime
     valid_until: datetime | None = None
-    is_active: bool = True
 
 
 class CouponCreate(CouponBase):

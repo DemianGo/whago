@@ -8,9 +8,14 @@
 <div class="admin-card">
     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
         <h3 style="margin: 0;">Cupons de Desconto</h3>
-        <button class="btn btn-primary" onclick="loadCoupons()">
-            <i class="fas fa-sync"></i> Atualizar
-        </button>
+        <div>
+            <button class="btn btn-success" onclick="openCreateCouponModal()" style="margin-right: 0.5rem;">
+                <i class="fas fa-plus"></i> Novo Cupom
+            </button>
+            <button class="btn btn-primary" onclick="loadCoupons()">
+                <i class="fas fa-sync"></i> Atualizar
+            </button>
+        </div>
     </div>
 
     <div id="couponsContainer">
@@ -19,12 +24,58 @@
         </div>
     </div>
 </div>
+
+<div id="couponModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title" id="couponModalTitle">Novo Cupom</h3>
+            <button class="modal-close" onclick="closeCouponModal()">&times;</button>
+        </div>
+        <form id="couponForm">
+            <input type="hidden" id="couponId">
+            
+            <div class="form-group">
+                <label class="form-label">Código *</label>
+                <input type="text" id="couponCode" class="form-control" required style="text-transform: uppercase;">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Tipo *</label>
+                <select id="couponType" class="form-control">
+                    <option value="percentage">Percentual (%)</option>
+                    <option value="fixed">Valor Fixo (R$)</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Valor *</label>
+                <input type="number" id="couponValue" class="form-control" step="0.01" required>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Máximo de Usos</label>
+                <input type="number" id="couponMaxUses" class="form-control" placeholder="Deixe vazio para ilimitado">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Válido Até</label>
+                <input type="datetime-local" id="couponValidUntil" class="form-control">
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeCouponModal()">Cancelar</button>
+                <button type="submit" class="btn btn-success">Salvar</button>
+            </div>
+        </form>
+    </div>
+</div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
 document.addEventListener('DOMContentLoaded', () => {
     loadCoupons();
+    document.getElementById('couponForm').addEventListener('submit', handleCouponSubmit);
 });
 
 async function loadCoupons() {
@@ -43,7 +94,7 @@ async function loadCoupons() {
         }
         
         let html = '<table class="admin-table"><thead><tr>';
-        html += '<th>Código</th><th>Tipo</th><th>Desconto</th><th>Usos</th><th>Validade</th><th>Status</th>';
+        html += '<th>Código</th><th>Tipo</th><th>Desconto</th><th>Usos</th><th>Validade</th><th>Ações</th>';
         html += '</tr></thead><tbody>';
         
         coupons.forEach(coupon => {
@@ -51,10 +102,6 @@ async function loadCoupons() {
             const discountValue = coupon.discount_type === 'percentage' 
                 ? `${coupon.discount_value}%`
                 : `R$ ${coupon.discount_value}`;
-            
-            const statusBadge = coupon.is_active 
-                ? '<span class="badge badge-success">Ativo</span>'
-                : '<span class="badge badge-danger">Inativo</span>';
             
             const validUntil = coupon.valid_until 
                 ? new Date(coupon.valid_until).toLocaleDateString('pt-BR')
@@ -70,7 +117,14 @@ async function loadCoupons() {
                 <td>${discountValue}</td>
                 <td>${usageInfo}</td>
                 <td>${validUntil}</td>
-                <td>${statusBadge}</td>
+                <td>
+                    <button class="btn btn-primary btn-sm" onclick="editCoupon(${coupon.id})">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn btn-danger btn-sm" onclick="deleteCoupon(${coupon.id}, '${coupon.code}')">
+                        <i class="fas fa-trash"></i>
+                    </button>
+                </td>
             </tr>`;
         });
         
@@ -82,6 +136,102 @@ async function loadCoupons() {
         container.innerHTML = '<p style="text-align: center; color: #f56565;">Erro ao carregar cupons.</p>';
     }
 }
+
+function openCreateCouponModal() {
+    document.getElementById('couponModalTitle').textContent = 'Novo Cupom';
+    document.getElementById('couponForm').reset();
+    document.getElementById('couponId').value = '';
+    document.getElementById('couponModal').classList.add('active');
+}
+
+async function editCoupon(couponId) {
+    try {
+        const response = await adminFetch('/admin/coupons');
+        if (!response?.ok) throw new Error();
+        
+        const coupons = await response.json();
+        const coupon = coupons.find(c => c.id === couponId);
+        
+        if (!coupon) throw new Error('Cupom não encontrado');
+        
+        document.getElementById('couponModalTitle').textContent = 'Editar Cupom';
+        document.getElementById('couponId').value = coupon.id;
+        document.getElementById('couponCode').value = coupon.code;
+        document.getElementById('couponType').value = coupon.discount_type;
+        document.getElementById('couponValue').value = coupon.discount_value;
+        document.getElementById('couponMaxUses').value = coupon.max_uses || '';
+        
+        if (coupon.valid_until) {
+            const date = new Date(coupon.valid_until);
+            document.getElementById('couponValidUntil').value = date.toISOString().slice(0,16);
+        }
+        
+        document.getElementById('couponModal').classList.add('active');
+    } catch (error) {
+        showAlert('Erro ao carregar cupom', 'error');
+    }
+}
+
+function closeCouponModal() {
+    document.getElementById('couponModal').classList.remove('active');
+}
+
+async function handleCouponSubmit(e) {
+    e.preventDefault();
+    
+    const couponId = document.getElementById('couponId').value;
+    const data = {
+        code: document.getElementById('couponCode').value.toUpperCase(),
+        discount_type: document.getElementById('couponType').value,
+        discount_value: parseFloat(document.getElementById('couponValue').value),
+        max_uses: parseInt(document.getElementById('couponMaxUses').value) || null,
+        valid_until: document.getElementById('couponValidUntil').value || null
+    };
+    
+    try {
+        const url = couponId ? `/admin/coupons/${couponId}` : '/admin/coupons';
+        const method = couponId ? 'PUT' : 'POST';
+        
+        const response = await adminFetch(url, {
+            method,
+            body: JSON.stringify(data)
+        });
+        
+        if (!response?.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Erro ao salvar cupom');
+        }
+        
+        showAlert('Cupom salvo com sucesso!', 'success');
+        closeCouponModal();
+        loadCoupons();
+        
+    } catch (error) {
+        showAlert(error.message || 'Erro ao salvar cupom', 'error');
+    }
+}
+
+async function deleteCoupon(couponId, code) {
+    if (!confirm(`Deseja excluir o cupom "${code}"?`)) return;
+    
+    try {
+        const response = await adminFetch(`/admin/coupons/${couponId}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response?.ok) throw new Error('Erro ao excluir cupom');
+        
+        showAlert('Cupom excluído com sucesso!', 'success');
+        loadCoupons();
+        
+    } catch (error) {
+        showAlert(error.message || 'Erro ao excluir cupom', 'error');
+    }
+}
+
+window.openCreateCouponModal = openCreateCouponModal;
+window.editCoupon = editCoupon;
+window.closeCouponModal = closeCouponModal;
+window.deleteCoupon = deleteCoupon;
 </script>
 {% endblock %}
-

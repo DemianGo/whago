@@ -303,8 +303,30 @@ async def update_plan(
         setattr(plan, key, value)
     
     await session.commit()
+    await session.refresh(plan)
     await log_admin_action(request, session, "plan_updated", "plan", plan_id, data.model_dump())
     return plan
+
+
+@router.delete("/plans/{plan_id}")
+async def delete_plan(
+    plan_id: int,
+    request: Request,
+    admin: Admin = Depends(require_super_admin),
+    session: AsyncSession = Depends(get_db)
+):
+    """Deleta plano"""
+    stmt = select(Plan).where(Plan.id == plan_id)
+    result = await session.execute(stmt)
+    plan = result.scalar_one_or_none()
+    
+    if not plan:
+        raise HTTPException(status_code=404, detail="Plano não encontrado")
+    
+    await session.delete(plan)
+    await session.commit()
+    await log_admin_action(request, session, "plan_deleted", "plan", plan_id, {"name": plan.name})
+    return {"message": "Plano excluído"}
 
 
 # ============================================================================
@@ -328,11 +350,14 @@ async def create_coupon(
     session: AsyncSession = Depends(get_db)
 ):
     """Cria cupom"""
-    coupon = Coupon(**data.model_dump())
+    coupon_data = data.model_dump()
+    if 'valid_from' not in coupon_data or coupon_data['valid_from'] is None:
+        coupon_data['valid_from'] = datetime.now(timezone.utc)
+    coupon = Coupon(**coupon_data)
     session.add(coupon)
     await session.commit()
     await session.refresh(coupon)
-    await log_admin_action(request, session, "coupon_created", "coupon", coupon.id, data.model_dump())
+    await log_admin_action(request, session, "coupon_created", "coupon", str(coupon.id), data.model_dump())
     return coupon
 
 
