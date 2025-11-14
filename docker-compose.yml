@@ -35,20 +35,29 @@ services:
       dockerfile: Dockerfile
     container_name: whago-backend
     restart: always
+    env_file:
+      - ./backend/.env
     environment:
+      # Estas variáveis de ambiente sobrescrevem o .env
       UVICORN_RELOAD_FLAG: "${UVICORN_RELOAD_FLAG:-}"
       PYTHONPATH: "/app"
       BAILEYS_API_URL: "http://baileys:3030/api/v1"
       REDIS_URL: "redis://redis:6379/0"
       CELERY_BROKER_URL: "redis://redis:6379/1"
       CELERY_RESULT_BACKEND: "redis://redis:6379/2"
+      API_URL: "http://localhost:8000"
+      FRONTEND_URL: "http://localhost:8000"
+      # ⚠️ MERCADO PAGO - MODO SANDBOX (TESTES)
+      # Estas credenciais sobrescrevem qualquer valor do .env
+      MERCADOPAGO_ACCESS_TOKEN: "TEST-6266967508496749-102011-9d5e58c0bd298f8ef2dc5210014a9245-2937021508"
+      MERCADOPAGO_PUBLIC_KEY: "TEST-1007ffce-416a-49cc-8888-ded9dd8cf368"
+      MERCADOPAGO_WEBHOOK_SECRET: "mercadopago-webhook-secret"
+      MERCADOPAGO_MODE: "sandbox"
     depends_on:
       postgres:
         condition: service_healthy
       redis:
         condition: service_healthy
-    env_file:
-      - ./backend/.env
     ports:
       - "8000:8000"
     volumes:

@@ -25,6 +25,7 @@ from ..models.user import User
 from ..schemas.chip import (
     ChipCreate,
     ChipEventResponse,
+    ChipHeatUpResponse,
     ChipQrResponse,
     ChipResponse,
 )
@@ -120,6 +121,26 @@ async def disconnect_chip(
 ) -> ChipResponse:
     service = ChipService(session)
     return await service.disconnect_chip(current_user, chip_id)
+
+
+@router.post(
+    "/{chip_id}/heat-up",
+    response_model=ChipHeatUpResponse,
+)
+async def start_chip_heat_up(
+    chip_id: UUID,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> ChipHeatUpResponse:
+    user_agent, client_ip = _context_from_request(request)
+    service = ChipService(session)
+    return await service.start_heat_up(
+        current_user,
+        chip_id,
+        user_agent=user_agent,
+        ip_address=client_ip,
+    )
 
 
 @router.delete(

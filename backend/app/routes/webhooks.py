@@ -4,11 +4,14 @@ Rotas para configuração de webhooks pelos usuários Enterprise.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+from typing import Any
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..config import settings
 from ..database import get_db
 from ..dependencies.auth import get_current_user
 from ..models.user import User
@@ -21,6 +24,8 @@ from ..schemas.webhook import (
 from ..services.webhook_service import WebhookEvent, WebhookService
 
 router = APIRouter(prefix="/api/v1/webhooks", tags=["Webhooks"])
+
+TEST_WEBHOOK_EVENTS: list[dict[str, Any]] = []
 
 
 async def _ensure_webhooks_enabled(session: AsyncSession, user: User) -> None:
@@ -37,6 +42,11 @@ async def _ensure_webhooks_enabled(session: AsyncSession, user: User) -> None:
             detail="Seu plano atual não possui suporte a webhooks.",
         )
     return user.plan
+
+
+def _ensure_test_receiver_available() -> None:
+    if settings.environment.strip().lower() == "production":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Recurso indisponível em produção.")
 
 
 @router.get("", response_model=list[WebhookSubscriptionResponse])
@@ -146,6 +156,38 @@ async def list_delivery_logs(
     service = WebhookService(session)
     logs = await service.get_recent_logs(current_user.id)
     return [WebhookDeliveryLogResponse.model_validate(log) for log in logs]
+
+
+@router.post("/test-receiver", status_code=status.HTTP_200_OK)
+async def webhook_test_receiver(request: Request) -> dict[str, Any]:
+    _ensure_test_receiver_available()
+    payload: dict[str, Any] = {}
+    try:
+        payload = await request.json()
+    except Exception:  # noqa: BLE001
+        payload = {}
+    event_record = {
+        "received_at": datetime.now(timezone.utc).isoformat(),
+        "payload": payload,
+        "headers": {key: value for key, value in request.headers.items()},
+    }
+    TEST_WEBHOOK_EVENTS.append(event_record)
+    if len(TEST_WEBHOOK_EVENTS) > 50:
+        del TEST_WEBHOOK_EVENTS[:-50]
+    return {"status": "received"}
+
+
+@router.get("/test-receiver/events")
+async def list_test_receiver_events() -> list[dict[str, Any]]:
+    _ensure_test_receiver_available()
+    return TEST_WEBHOOK_EVENTS[-20:][::-1]
+
+
+@router.delete("/test-receiver/events", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
+async def clear_test_receiver_events() -> Response:
+    _ensure_test_receiver_available()
+    TEST_WEBHOOK_EVENTS.clear()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 __all__ = ("router",)

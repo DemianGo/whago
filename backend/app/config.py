@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     rate_limit_per_minute: int = 100
     rate_limit_login_attempts: int = 5
     rate_limit_login_window_minutes: int = 15
+    api_key_rate_limit_per_minute: int = 30
 
     # CORS
     cors_origins: str = '["http://localhost:3000","http://localhost:8000"]'
@@ -54,6 +55,41 @@ class Settings(BaseSettings):
     
     # Logging
     log_level: str = "INFO"
+
+    # Armazenamento de mídia
+    media_root: str = "/app/storage"
+    media_base_url: str = "/media"
+    media_max_file_size_mb: int = 10
+    media_allowed_content_types: List[str] = [
+        "image/png",
+        "image/jpeg",
+        "image/gif",
+        "application/pdf",
+        "audio/mpeg",
+        "audio/ogg",
+        "video/mp4",
+    ]
+    
+    # URLs
+    api_url: str = "http://localhost:8000"
+    frontend_url: str = "http://localhost:8000"
+    
+    # Payment Gateways
+    # Mercado Pago
+    mercadopago_access_token: str = ""
+    mercadopago_public_key: str = ""
+    mercadopago_webhook_secret: str = ""
+    
+    # PayPal
+    paypal_client_id: str = ""
+    paypal_client_secret: str = ""
+    paypal_webhook_id: str = ""
+    paypal_mode: str = "sandbox"  # sandbox ou live
+    
+    # Stripe
+    stripe_api_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_publishable_key: str = ""
     
     model_config = SettingsConfigDict(
         env_file=".env",

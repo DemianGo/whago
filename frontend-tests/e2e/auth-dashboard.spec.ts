@@ -6,7 +6,7 @@ test.describe("Fluxos de autenticação e dashboard", () => {
   test("usuário consegue autenticar e visualizar KPIs do dashboard", async ({ page, request }) => {
     const user = await createTestUser(request);
     try {
-      await loginUI(page, user);
+      await loginUI(page, user, { request });
 
       await expect(page.locator("#topbar-title")).toHaveText(/Painel WHAGO/i);
       await expect(page.locator("#sidebar-plan")).toContainText("Plano");

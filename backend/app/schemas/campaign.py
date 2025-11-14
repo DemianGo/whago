@@ -22,6 +22,20 @@ class CampaignSettings(BaseModel):
     retry_attempts: int = Field(default=0, ge=0, le=3)
     retry_interval_seconds: int = Field(default=60, ge=30)
 
+    model_config = {"extra": "ignore"}
+
+
+class CampaignMediaResponse(BaseModel):
+    id: UUID
+    original_name: str
+    stored_name: str
+    content_type: str
+    size_bytes: int
+    created_at: datetime
+    url: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
 
 class CampaignCreate(BaseModel):
     name: str = Field(min_length=3, max_length=100)
@@ -68,8 +82,11 @@ class CampaignSummary(BaseModel):
 class CampaignDetail(CampaignSummary):
     message_template: str
     message_template_b: Optional[str]
-    settings: Optional[dict]
+    settings: Optional[CampaignSettings | dict]
     scheduled_for: Optional[datetime]
+    media: list[CampaignMediaResponse] = Field(default_factory=list)
+
+    model_config = {"from_attributes": True}
 
 
 class ContactUploadResponse(BaseModel):
@@ -78,6 +95,7 @@ class ContactUploadResponse(BaseModel):
     invalid_contacts: int
     duplicated: int
     preview: list[dict]
+    variables: list[str] = Field(default_factory=list)
 
 
 class CampaignActionResponse(BaseModel):
@@ -96,12 +114,15 @@ class CampaignMessageResponse(BaseModel):
     delivered_at: Optional[datetime]
     read_at: Optional[datetime]
     created_at: datetime
+    chip_id: Optional[UUID]
+    chip_alias: Optional[str]
 
     model_config = {"from_attributes": True}
 
 
 __all__ = (
     "CampaignSettings",
+    "CampaignMediaResponse",
     "CampaignCreate",
     "CampaignUpdate",
     "CampaignSummary",

@@ -36,6 +36,7 @@ from ..schemas.billing import (
 from .payment_gateway import PaymentGatewayClient, PaymentGatewayError
 from .webhook_service import WebhookEvent, WebhookService
 from .audit_service import AuditService
+from .notification_service import NotificationService, NotificationType
 
 CREDIT_PACKAGES = {
     "credits_1000": {"credits": 1000, "price": Decimal("30.00")},
@@ -253,6 +254,18 @@ class BillingService:
                 "package": payload.package_code,
                 "payment_method": payload.payment_method,
                 "amount": str(amount),
+            },
+            auto_commit=False,
+        )
+        notifier = NotificationService(self.session)
+        await notifier.create(
+            user_id=user.id,
+            title="Créditos adicionados",
+            message=f"Compra de {credits_added} créditos aprovada.",
+            type_=NotificationType.SUCCESS,
+            extra_data={
+                "transaction_id": str(transaction.id),
+                "credits_added": credits_added,
             },
             auto_commit=False,
         )

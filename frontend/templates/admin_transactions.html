@@ -1,0 +1,104 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Transações - WHAGO Admin{% endblock %}
+{% block page_title %}Transações{% endblock %}
+{% block data_page %}admin-transactions{% endblock %}
+
+{% block content %}
+<div class="admin-card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+        <div style="display: flex; gap: 1rem;">
+            <select id="filterGateway" class="form-control" style="max-width: 200px;">
+                <option value="">Todos os gateways</option>
+                <option value="mercadopago">Mercado Pago</option>
+                <option value="paypal">PayPal</option>
+                <option value="stripe">Stripe</option>
+            </select>
+            <select id="filterStatus" class="form-control" style="max-width: 200px;">
+                <option value="">Todos os status</option>
+                <option value="completed">Completo</option>
+                <option value="pending">Pendente</option>
+                <option value="failed">Falhou</option>
+            </select>
+        </div>
+        <button class="btn btn-primary" onclick="loadTransactions()">
+            <i class="fas fa-sync"></i> Atualizar
+        </button>
+    </div>
+
+    <div id="transactionsContainer">
+        <div class="loading">
+            <i class="fas fa-spinner fa-spin"></i> Carregando...
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    loadTransactions();
+    document.getElementById('filterGateway').addEventListener('change', loadTransactions);
+    document.getElementById('filterStatus').addEventListener('change', loadTransactions);
+});
+
+async function loadTransactions() {
+    const container = document.getElementById('transactionsContainer');
+    container.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>';
+    
+    try {
+        const gateway = document.getElementById('filterGateway').value;
+        const status = document.getElementById('filterStatus').value;
+        
+        const params = new URLSearchParams();
+        if (gateway) params.append('gateway', gateway);
+        if (status) params.append('status', status);
+        params.append('limit', '50');
+        
+        const response = await adminFetch(`/admin/transactions?${params}`);
+        if (!response?.ok) throw new Error();
+        
+        const transactions = await response.json();
+        
+        if (transactions.length === 0) {
+            container.innerHTML = '<p style="text-align: center; color: #718096;">Nenhuma transação encontrada.</p>';
+            return;
+        }
+        
+        let html = '<table class="admin-table"><thead><tr>';
+        html += '<th>Usuário</th><th>Tipo</th><th>Valor</th><th>Gateway</th><th>Status</th><th>Data</th>';
+        html += '</tr></thead><tbody>';
+        
+        transactions.forEach(tx => {
+            const statusBadges = {
+                'completed': 'badge-success',
+                'pending': 'badge-warning',
+                'failed': 'badge-danger'
+            };
+            
+            const statusBadge = `<span class="badge ${statusBadges[tx.status] || 'badge-info'}">${tx.status}</span>`;
+            
+            html += `<tr>
+                <td>
+                    <strong>${tx.user_name}</strong><br>
+                    <small style="color: #718096;">${tx.user_email}</small>
+                </td>
+                <td>${tx.type}</td>
+                <td><strong>R$ ${parseFloat(tx.amount).toFixed(2)}</strong></td>
+                <td>${tx.payment_method}</td>
+                <td>${statusBadge}</td>
+                <td>${new Date(tx.created_at).toLocaleString('pt-BR')}</td>
+            </tr>`;
+        });
+        
+        html += '</tbody></table>';
+        container.innerHTML = html;
+        
+    } catch (error) {
+        console.error('Erro:', error);
+        container.innerHTML = '<p style="text-align: center; color: #f56565;">Erro ao carregar transações.</p>';
+    }
+}
+</script>
+{% endblock %}
+

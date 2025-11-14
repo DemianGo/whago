@@ -46,10 +46,33 @@ class ChipCreate(BaseModel):
 
 
 class ChipQrResponse(BaseModel):
-    qr: Optional[str] = None
+    qr: Optional[str] = Field(None, alias="qr_code")
     expires_at: Optional[datetime] = None
+    
+    model_config = {"populate_by_name": True}
 
 
-__all__ = ("ChipCreate", "ChipResponse", "ChipEventResponse", "ChipQrResponse")
+class ChipHeatUpStage(BaseModel):
+    stage: int
+    duration_hours: int
+    messages_per_hour: int
+    description: str
+
+
+class ChipHeatUpResponse(BaseModel):
+    chip_id: UUID
+    message: str
+    stages: list[ChipHeatUpStage]
+    recommended_total_hours: int
+
+
+__all__ = (
+    "ChipCreate",
+    "ChipResponse",
+    "ChipEventResponse",
+    "ChipQrResponse",
+    "ChipHeatUpStage",
+    "ChipHeatUpResponse",
+)
 
 

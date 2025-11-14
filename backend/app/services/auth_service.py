@@ -352,18 +352,9 @@ class AuthService:
 
     def _enforce_plan_requirements(self, plan: Plan, data: UserCreate) -> None:
         """Valida campos obrigatórios conforme tipo de plano."""
-
-        if plan.tier in {PlanTier.BUSINESS, PlanTier.ENTERPRISE}:
-            if not data.company_name:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="Nome da empresa é obrigatório para este plano.",
-                )
-            if not data.document:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                    detail="Documento (CNPJ/CPF) é obrigatório para este plano.",
-                )
+        # Campos company_name e document são opcionais
+        # Podem ser preenchidos posteriormente no perfil
+        pass
 
     def _build_auth_response(self, user: User, tokens: TokenPair) -> AuthResponse:
         plan_name = user.plan.name if user.plan else None

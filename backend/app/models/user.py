@@ -32,6 +32,7 @@ from .chip import Chip
 from .campaign import Campaign
 from .notification import Notification
 from .audit_log import AuditLog
+from .api_key import ApiKey
 
 
 class User(Base):
@@ -75,6 +76,14 @@ class User(Base):
     default_payment_method: Mapped[str | None] = mapped_column(String(50), nullable=True)
     billing_customer_reference: Mapped[str | None] = mapped_column(String(100), nullable=True)
     billing_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    
+    # Campos de assinatura
+    subscription_id: Mapped[str | None] = mapped_column(String(255), nullable=True)  # ID da assinatura no gateway
+    subscription_status: Mapped[str | None] = mapped_column(String(50), nullable=True)  # active, paused, cancelled
+    subscription_gateway: Mapped[str | None] = mapped_column(String(50), nullable=True)  # mercadopago, paypal, stripe
+    subscription_started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    subscription_cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    next_billing_date: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     tokens: Mapped[List["UserToken"]] = relationship(
         back_populates="user",
         cascade="all, delete-orphan",
@@ -99,6 +108,11 @@ class User(Base):
         back_populates="user",
         cascade="all, delete-orphan",
         order_by="Notification.created_at.desc()",
+    )
+    api_keys: Mapped[List[ApiKey]] = relationship(
+        back_populates="user",
+        cascade="all, delete-orphan",
+        order_by="ApiKey.created_at.desc()",
     )
     audit_logs: Mapped[List[AuditLog]] = relationship(
         back_populates="user",

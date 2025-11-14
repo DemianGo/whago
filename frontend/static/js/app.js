@@ -2,7 +2,7 @@ const API_BASE = "/api/v1";
 const ACCESS_TOKEN_KEY = "whago_access_token";
 const REFRESH_TOKEN_KEY = "whago_refresh_token";
 
-const PUBLIC_PAGES = new Set(["login", "register"]);
+const PUBLIC_PAGES = new Set(["login", "register", "home", ""]);
 
 const selectors = {
   summaryCredits: () => document.getElementById("summary-credits"),
@@ -18,6 +18,253 @@ const selectors = {
   userInitial: () => document.getElementById("user-initial"),
   topbarTitle: () => document.getElementById("topbar-title"),
 };
+
+const CHIP_STATUS_LABELS = {
+  WAITING_QR: "Aguardando QR",
+  CONNECTING: "Conectando",
+  CONNECTED: "Conectado",
+  MATURING: "Em aquecimento",
+  DISCONNECTED: "Desconectado",
+  MAINTENANCE: "Em manutenção",
+  BANNED: "Banido",
+  ERROR: "Erro",
+};
+
+const chipState = {
+  pollIntervalId: null,
+  qrPollIntervalId: null,
+  currentChipId: null,
+  modalOpen: false,
+  modal: {
+    element: null,
+    backdrop: null,
+    form: null,
+    aliasInput: null,
+    submitButton: null,
+  },
+};
+
+const campaignState = {
+  campaignId: null,
+  currentStep: 1,
+  contactsSummary: null,
+  createdCampaign: null,
+  wizard: {
+    element: null,
+    backdrop: null,
+    steps: [],
+    panels: [],
+  },
+  selectedChips: new Set(),
+  chipCache: [],
+  variables: [],
+  media: [],
+  pendingMediaFile: null,
+};
+
+globalThis.__WHAGO_CAMPAIGN_STATE = campaignState;
+
+function setCampaignFeedback(message, type = "info") {
+  const feedback = document.getElementById("campaign-feedback");
+  if (!feedback) return;
+  feedback.textContent = message ?? "";
+  feedback.classList.remove("text-emerald-600", "text-red-600", "text-amber-600", "text-slate-500");
+  if (!message) {
+    feedback.classList.add("text-slate-500");
+    return;
+  }
+  const classMap = {
+    success: "text-emerald-600",
+    error: "text-red-600",
+    warning: "text-amber-600",
+    info: "text-slate-500",
+  };
+  feedback.classList.add(classMap[type] ?? "text-slate-500");
+}
+
+function setCampaignMediaFeedback(message, type = "info") {
+  const feedback = document.getElementById("campaign-media-feedback");
+  if (!feedback) return;
+  const classMap = {
+    success: "text-emerald-600",
+    error: "text-red-600",
+    warning: "text-amber-600",
+    info: "text-slate-500",
+  };
+  feedback.textContent = message ?? "";
+  feedback.classList.remove("text-emerald-600", "text-red-600", "text-amber-600", "text-slate-500");
+  feedback.classList.add(classMap[type] ?? "text-slate-500");
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  const units = ["B", "KB", "MB", "GB"];
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1);
+  const value = bytes / 1024 ** index;
+  return `${value.toFixed(value >= 10 || index === 0 ? 0 : 1)} ${units[index]}`;
+}
+
+function renderCampaignMediaList() {
+  const list = document.getElementById("campaign-media-list");
+  if (!list) return;
+  if (!campaignState.media.length) {
+    list.classList.add("hidden");
+    list.innerHTML = "";
+    return;
+  }
+  list.classList.remove("hidden");
+  list.innerHTML = campaignState.media
+    .map((item) => `<li data-media-id="${item.id}">${item.original_name} (${formatBytes(item.size_bytes)})</li>`)
+    .join("");
+}
+
+function renderCampaignVariables() {
+  const container = document.getElementById("campaign-variables");
+  const box = document.getElementById("campaign-variables-box");
+  if (!container || !box) return;
+  if (!campaignState.variables.length) {
+    container.innerHTML = "";
+    box.classList.add("hidden");
+    return;
+  }
+  box.classList.remove("hidden");
+  container.innerHTML = campaignState.variables
+    .map((variable) => `<button type="button" class="badge" data-variable="${variable}">{{${variable}}}</button>`)
+    .join("");
+}
+
+function renderCampaignVariablesSummary() {
+  const summary = document.getElementById("campaign-variables-summary");
+  if (!summary) return;
+  if (!campaignState.variables.length) {
+    summary.classList.add("hidden");
+    summary.innerHTML = "";
+    return;
+  }
+  summary.classList.remove("hidden");
+  summary.innerHTML = `<strong>Variáveis detectadas:</strong> ${campaignState.variables
+    .map((variable) => `{{${variable}}}`)
+    .join(", ")}`;
+}
+
+function insertVariableAtCursor(target, value) {
+  if (!(target instanceof HTMLTextAreaElement)) return;
+  const start = target.selectionStart ?? target.value.length;
+  const end = target.selectionEnd ?? target.value.length;
+  const before = target.value.slice(0, start);
+  const after = target.value.slice(end);
+  target.value = `${before}${value}${after}`;
+  const newPosition = start + value.length;
+  target.focus();
+  target.setSelectionRange(newPosition, newPosition);
+  target.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+async function safeReadText(response) {
+  try {
+    const text = await response.text();
+    if (!text) return null;
+    try {
+      const parsed = JSON.parse(text);
+      if (parsed && typeof parsed.detail === "string") return parsed.detail;
+      if (parsed && typeof parsed.message === "string") return parsed.message;
+      return text;
+    } catch (error) {
+      return text;
+    }
+  } catch (error) {
+    console.error(error);
+    return null;
+  }
+}
+
+async function uploadCampaignMedia(file) {
+  if (!file) return false;
+  if (!campaignState.campaignId) {
+    campaignState.pendingMediaFile = file;
+    setCampaignMediaFeedback("Crie a campanha antes de enviar a mídia.", "warning");
+    return false;
+  }
+  setCampaignMediaFeedback(`Enviando ${file.name}...`, "info");
+  const token = getAccessToken();
+  const formData = new FormData();
+  formData.append("file", file);
+  try {
+    const response = await fetch(`${API_BASE}/campaigns/${campaignState.campaignId}/media`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: formData,
+    });
+    if (!response.ok) {
+      const message = await safeReadText(response) ?? "Falha ao anexar o arquivo.";
+      setCampaignMediaFeedback(message, "error");
+      return false;
+    }
+    const media = await response.json();
+    campaignState.media.push(media);
+    if (campaignState.createdCampaign) {
+      if (!Array.isArray(campaignState.createdCampaign.media)) {
+        campaignState.createdCampaign.media = [];
+      }
+      campaignState.createdCampaign.media.push(media);
+    }
+    setCampaignMediaFeedback(`Arquivo ${media.original_name} anexado com sucesso.`, "success");
+    renderCampaignMediaList();
+    return true;
+  } catch (error) {
+    console.error(error);
+    setCampaignMediaFeedback("Erro inesperado ao enviar o arquivo.", "error");
+    return false;
+  }
+}
+
+async function maybeUploadPendingMedia() {
+  if (!campaignState.pendingMediaFile || !campaignState.campaignId) {
+    return;
+  }
+  const file = campaignState.pendingMediaFile;
+  campaignState.pendingMediaFile = null;
+  await uploadCampaignMedia(file);
+  const mediaInput = document.getElementById("campaign-media");
+  if (mediaInput) {
+    mediaInput.value = "";
+  }
+}
+
+const CAMPAIGN_STATUS_LABELS = {
+  draft: "Rascunho",
+  scheduled: "Agendada",
+  running: "Em andamento",
+  paused: "Pausada",
+  completed: "Concluída",
+  cancelled: "Cancelada",
+  error: "Erro",
+};
+
+function formatCampaignStatus(status) {
+  if (!status) return "--";
+  const key = String(status).toLowerCase();
+  return CAMPAIGN_STATUS_LABELS[key] ?? status;
+}
+
+function getCampaignStatusClass(status) {
+  const normalized = (status || "").toLowerCase();
+  switch (normalized) {
+    case "running":
+      return "status status-running";
+    case "paused":
+      return "status status-paused";
+    case "completed":
+      return "status status-delivered";
+    case "cancelled":
+    case "error":
+      return "status status-error";
+    case "scheduled":
+      return "status status-waiting";
+    default:
+      return "status";
+  }
+}
 
 const statusMap = {
   draft: "Rascunho",
@@ -464,26 +711,419 @@ async function loadDashboard() {
   }
 }
 
-async function loadChips() {
+function formatChipStatus(status) {
+  if (!status) return "--";
+  const key = String(status).toUpperCase();
+  return CHIP_STATUS_LABELS[key] ?? String(status).replace(/_/g, " ");
+}
+
+function getChipStatusClass(status) {
+  const normalized = (status || "").toLowerCase();
+  switch (normalized) {
+    case "waiting_qr":
+    case "waiting-qr":
+      return "status status-waiting";
+    case "connecting":
+      return "status status-waiting";
+    case "connected":
+      return "status status-connected";
+    case "maturing":
+      return "status status-maturing";
+    case "disconnected":
+      return "status status-disconnected";
+    case "error":
+      return "status status-error";
+    default:
+      return "status";
+  }
+}
+
+function setChipFeedback(message, type = "info") {
+  const feedback = document.getElementById("chip-feedback");
+  if (!feedback) return;
+  feedback.textContent = message ?? "";
+  feedback.classList.remove("text-emerald-600", "text-red-600", "text-amber-600", "text-slate-500");
+  if (!message) {
+    feedback.classList.add("text-slate-500");
+    return;
+  }
+  const classMap = {
+    success: "text-emerald-600",
+    error: "text-red-600",
+    warning: "text-amber-600",
+    info: "text-slate-500",
+  };
+  feedback.classList.add(classMap[type] ?? "text-slate-500");
+}
+
+function openChipModal() {
+  const { element, backdrop, aliasInput, submitButton } = chipState.modal;
+  if (!element || !backdrop) return;
+  element.classList.remove("hidden");
+  backdrop.classList.remove("hidden");
+  chipState.modalOpen = true;
+  submitButton?.removeAttribute("disabled");
+  aliasInput?.focus({ preventScroll: true });
+}
+
+function closeChipModal() {
+  const { element, backdrop, form } = chipState.modal;
+  if (!element || !backdrop) return;
+  element.classList.add("hidden");
+  backdrop.classList.add("hidden");
+  chipState.modalOpen = false;
+  form?.reset();
+}
+
+async function handleChipFormSubmit(event) {
+  event.preventDefault();
+  const { aliasInput, submitButton } = chipState.modal;
+  if (!aliasInput) return;
+  const alias = aliasInput.value.trim();
+  if (!alias) {
+    setChipFeedback("Informe um apelido para o chip.", "warning");
+    return;
+  }
+  submitButton?.setAttribute("disabled", "true");
+  setChipFeedback("Criando chip...", "info");
+  const response = await apiFetch("/chips", {
+    method: "POST",
+    body: JSON.stringify({ alias }),
+  });
+  if (response?.ok) {
+    const chip = await response.json();
+    setChipFeedback(`Chip ${chip.alias} criado com sucesso.`, "success");
+    
+    // Show QR Code section
+    await showChipQrCode(chip.id);
+    await loadChips({ silent: true });
+  } else {
+    let detail = "Não foi possível criar o chip.";
+    try {
+      const error = await response.json();
+      if (typeof error?.detail === "string") {
+        detail = error.detail;
+      }
+    } catch (err) {
+      // Ignora falha ao ler corpo da resposta
+    }
+    setChipFeedback(detail, "error");
+  }
+  submitButton?.removeAttribute("disabled");
+}
+
+async function showChipQrCode(chipId) {
+  console.log('[showChipQrCode] Iniciando para chip:', chipId);
+  
+  // Hide form, show QR section
+  const form = document.getElementById("chip-form");
+  const qrSection = document.getElementById("chip-qr-section");
+  const qrLoading = document.getElementById("chip-qr-loading");
+  const qrImage = document.getElementById("chip-qr-image");
+  const qrStatus = document.getElementById("chip-qr-status");
+  
+  console.log('[showChipQrCode] Elementos encontrados:', { 
+    form: !!form, 
+    qrSection: !!qrSection, 
+    qrImage: !!qrImage, 
+    qrLoading: !!qrLoading 
+  });
+  
+  if (!form || !qrSection || !qrImage || !qrLoading) {
+    console.error('[showChipQrCode] Elementos faltando!');
+    return;
+  }
+  
+  form.classList.add("hidden");
+  qrSection.classList.remove("hidden");
+  qrLoading.classList.remove("hidden");
+  qrImage.classList.add("hidden");
+  
+  console.log('[showChipQrCode] QR section exibida');
+  
+  chipState.currentChipId = chipId;
+  chipState.qrPollIntervalId = setInterval(() => {
+    void fetchAndDisplayQrCode(chipId);
+  }, 5000); // Poll every 5 seconds
+  
+  // Initial fetch
+  await fetchAndDisplayQrCode(chipId);
+  
+  // Bind close button
+  const closeButton = document.getElementById("chip-qr-close");
+  closeButton?.addEventListener("click", () => {
+    closeChipQrModal();
+  });
+}
+
+async function fetchAndDisplayQrCode(chipId) {
+  const qrLoading = document.getElementById("chip-qr-loading");
+  const qrImage = document.getElementById("chip-qr-image");
+  const qrStatus = document.getElementById("chip-qr-status");
+  
+  if (!qrImage || !qrStatus) return;
+  
+  try {
+    const response = await apiFetch(`/chips/${chipId}/qr`);
+    
+    if (!response?.ok) {
+      if (qrStatus) {
+        qrStatus.textContent = "Erro ao buscar QR Code. Tentando novamente...";
+        qrStatus.className = "text-center text-sm text-red-600";
+      }
+      return;
+    }
+    
+    const data = await response.json();
+    console.log('[QR Code Debug]', { chipId, data, hasQrCode: !!(data.qr_code || data.qr) });
+    
+    // Backend retorna 'qr_code', não 'qr'
+    const qrCode = data.qr_code || data.qr;
+    
+    if (qrCode) {
+      // QR code is available
+      if (qrLoading) qrLoading.classList.add("hidden");
+      qrImage.src = qrCode;
+      qrImage.classList.remove("hidden");
+      
+      if (qrStatus) {
+        if (data.expires_at) {
+          const expiresAt = new Date(data.expires_at);
+          const now = new Date();
+          const secondsLeft = Math.floor((expiresAt - now) / 1000);
+          if (secondsLeft > 0) {
+            qrStatus.textContent = `QR Code expira em ${secondsLeft} segundos`;
+            qrStatus.className = "text-center text-sm text-slate-600";
+          } else {
+            qrStatus.textContent = "QR Code expirado. Gerando novo...";
+            qrStatus.className = "text-center text-sm text-orange-600";
+          }
+        } else {
+          qrStatus.textContent = "Escaneie o QR Code acima com seu WhatsApp";
+          qrStatus.className = "text-center text-sm text-slate-600";
+        }
+      }
+    } else {
+      // No QR code yet
+      if (qrLoading) qrLoading.classList.remove("hidden");
+      qrImage.classList.add("hidden");
+      if (qrStatus) {
+        qrStatus.textContent = "Aguardando QR Code...";
+        qrStatus.className = "text-center text-sm text-slate-600";
+      }
+    }
+    
+    // Check chip status
+    const chipResponse = await apiFetch(`/chips/${chipId}`);
+    if (chipResponse?.ok) {
+      const chip = await chipResponse.json();
+      if (chip.status === "connected") {
+        // Chip connected, close modal
+        if (qrStatus) {
+          qrStatus.textContent = "✅ Chip conectado com sucesso!";
+          qrStatus.className = "text-center text-sm text-green-600 font-semibold";
+        }
+        setTimeout(() => {
+          closeChipQrModal();
+        }, 2000);
+      }
+    }
+  } catch (error) {
+    console.error("Error fetching QR code:", error);
+    if (qrStatus) {
+      qrStatus.textContent = "Erro ao buscar QR Code. Tentando novamente...";
+      qrStatus.className = "text-center text-sm text-red-600";
+    }
+  }
+}
+
+function closeChipQrModal() {
+  const form = document.getElementById("chip-form");
+  const qrSection = document.getElementById("chip-qr-section");
+  
+  if (chipState.qrPollIntervalId) {
+    clearInterval(chipState.qrPollIntervalId);
+    chipState.qrPollIntervalId = null;
+  }
+  
+  if (form) form.classList.remove("hidden");
+  if (qrSection) qrSection.classList.add("hidden");
+  
+  closeChipModal();
+  chipState.currentChipId = null;
+}
+
+function bindChipModal() {
+  chipState.modal.element = document.getElementById("chip-modal");
+  chipState.modal.backdrop = document.getElementById("chip-modal-backdrop");
+  chipState.modal.form = document.getElementById("chip-form");
+  chipState.modal.aliasInput = document.getElementById("chip-alias");
+  chipState.modal.submitButton = document.querySelector("[data-test=\"submit-chip\"]");
+
+  const cancelButton = document.getElementById("chip-modal-cancel");
+  const closeButton = document.getElementById("chip-modal-close");
+
+  cancelButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    closeChipModal();
+  });
+  closeButton?.addEventListener("click", (event) => {
+    event.preventDefault();
+    closeChipModal();
+  });
+  chipState.modal.backdrop?.addEventListener("click", closeChipModal);
+  chipState.modal.form?.addEventListener("submit", handleChipFormSubmit);
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && chipState.modalOpen) {
+      closeChipModal();
+    }
+  });
+}
+
+function startChipPolling() {
+  if (chipState.pollIntervalId) return;
+  chipState.pollIntervalId = setInterval(() => {
+    void loadChips({ silent: true });
+  }, 5000);
+}
+
+function bindChipsPage() {
+  bindChipModal();
+  document.querySelector("[data-test=\"add-chip\"]")?.addEventListener("click", () => {
+    openChipModal();
+  });
+  document.getElementById("refresh-chips")?.addEventListener("click", () => {
+    void loadChips({ silent: true });
+  });
+}
+
+async function initChipsPage() {
+  bindChipsPage();
+  await loadChips();
+  startChipPolling();
+}
+
+async function loadChips(options = {}) {
+  const { silent = false } = options;
   const response = await apiFetch("/chips");
-  if (!response?.ok) return;
+  if (!response?.ok) {
+    if (!silent) {
+      setChipFeedback("Não foi possível carregar os chips.", "error");
+    }
+    return;
+  }
   const chips = await response.json();
   const table = document.querySelector("#chip-table tbody");
   if (!table) return;
   table.innerHTML = "";
   chips.forEach((chip) => {
-    const statusText = (chip.status || "--").replace(/_/g, " ");
-    const statusClass = (chip.status || "").toLowerCase();
+    const statusLabel = formatChipStatus(chip.status);
+    const statusClass = getChipStatusClass(chip.status);
+    const heatUpStatus = chip.extra_data?.heat_up?.status;
+    const isHeatingUp = heatUpStatus === "in_progress";
+    
     const row = document.createElement("tr");
+    row.dataset.test = "chip-row";
+    row.dataset.chipId = chip.id;
+    row.dataset.alias = chip.alias;
     row.innerHTML = `
-      <td class="py-2 font-medium text-slate-800">${chip.alias}</td>
-      <td class="py-2"><span class="status status-${statusClass}">${statusText}</span></td>
+      <td class="py-2 font-medium text-slate-800">
+        ${chip.alias}
+        ${isHeatingUp ? '<span class="ml-2 text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded">🔥 Aquecendo</span>' : ''}
+      </td>
+      <td class="py-2"><span data-test="chip-status" class="${statusClass}">${statusLabel}</span></td>
       <td class="py-2">${chip.health_score ?? "--"}</td>
       <td class="py-2">${formatDate(chip.created_at)}</td>
       <td class="py-2">${formatDate(chip.last_activity_at)}</td>
+      <td class="py-2 text-right">
+        <div class="flex gap-2 justify-end">
+          <button class="btn-secondary btn-xs" type="button" data-test="chip-action-heatup" data-chip-id="${chip.id}">
+            Iniciar heat-up
+          </button>
+          ${chip.status === 'connected' ? `
+            <button class="btn-secondary btn-xs" type="button" data-action="disconnect" data-chip-id="${chip.id}">
+              Desconectar
+            </button>
+          ` : ''}
+          <button class="btn-secondary btn-xs text-red-600 hover:bg-red-50" type="button" data-action="delete" data-chip-id="${chip.id}">
+            Deletar
+          </button>
+        </div>
+      </td>
     `;
     table.appendChild(row);
+
+    const heatUpButton = row.querySelector("[data-test=\"chip-action-heatup\"]");
+    const heatUpInfo = chip.extra_data?.heat_up;
+    if (heatUpInfo?.status === "in_progress") {
+      heatUpButton?.setAttribute("disabled", "true");
+      if (heatUpButton) heatUpButton.textContent = "Heat-up em andamento";
+    } else {
+      heatUpButton?.addEventListener("click", async () => {
+        await handleChipHeatUp(heatUpButton);
+      });
+    }
+    
+    // Disconnect button
+    const disconnectButton = row.querySelector("[data-action=\"disconnect\"]");
+    disconnectButton?.addEventListener("click", async () => {
+      if (confirm(`Deseja desconectar o chip "${chip.alias}"?`)) {
+        await handleChipDisconnect(chip.id);
+      }
+    });
+    
+    // Delete button
+    const deleteButton = row.querySelector("[data-action=\"delete\"]");
+    deleteButton?.addEventListener("click", async (e) => {
+      // Prevenir múltiplos cliques
+      if (deleteButton.disabled) return;
+      
+      const heatUpStatus = chip.extra_data?.heat_up?.status;
+      let confirmMsg = `Tem certeza que deseja DELETAR o chip "${chip.alias}"?`;
+      
+      if (heatUpStatus === "in_progress") {
+        confirmMsg = `⚠️ ATENÇÃO: O chip "${chip.alias}" está EM AQUECIMENTO!\n\nDeletar agora interromperá o processo de aquecimento.\n\nTem certeza que deseja DELETAR?`;
+      } else if (chip.status === "connected") {
+        confirmMsg = `⚠️ ATENÇÃO: O chip "${chip.alias}" está CONECTADO!\n\nDeletar desconectará o WhatsApp.\n\nTem certeza que deseja DELETAR?`;
+      }
+      
+      confirmMsg += "\n\nEsta ação não pode ser desfeita.";
+      
+      if (confirm(confirmMsg)) {
+        deleteButton.disabled = true;
+        deleteButton.textContent = "Deletando...";
+        await handleChipDelete(chip.id);
+        // Não precisa re-habilitar pois a linha será removida após reload
+      }
+    });
   });
+
+  if (!silent) {
+    const activePlan = chips.find((chip) => chip.extra_data?.heat_up?.plan?.length);
+    if (activePlan) {
+      const planPayload = activePlan.extra_data.heat_up;
+      renderHeatUpPlan({
+        chip_id: activePlan.id,
+        stages: planPayload.plan,
+        recommended_total_hours: planPayload.plan.reduce(
+          (total, stage) => total + (stage.duration_hours ?? 0),
+          0,
+        ),
+        message: "Plano de aquecimento em andamento.",
+      });
+    } else {
+      renderHeatUpPlan(null);
+    }
+  }
+
+  if (!silent) {
+    if (!chips.length) {
+      setChipFeedback("Nenhum chip cadastrado até o momento.", "info");
+    } else {
+      setChipFeedback("", "info");
+    }
+  }
 }
 
 async function loadCampaigns() {
@@ -663,9 +1303,15 @@ function bindBillingForms() {
 
   const creditForm = document.getElementById("credit-purchase-form");
   const creditFeedback = document.getElementById("credit-purchase-feedback");
+  if (creditFeedback) {
+    creditFeedback.dataset.state = creditFeedback.dataset.state || "idle";
+  }
   if (creditForm) {
     creditForm.addEventListener("submit", async (event) => {
       event.preventDefault();
+      if (creditFeedback) {
+        creditFeedback.dataset.state = "loading";
+      }
       creditFeedback.innerText = "Gerando compra...";
       const payload = {
         package_code: document.getElementById("credit-package").value,
@@ -679,10 +1325,16 @@ function bindBillingForms() {
       if (response?.ok) {
         const data = await response.json();
         creditFeedback.innerText = `Compra registrada! Novos créditos: ${data.new_balance}.`;
+        if (creditFeedback) {
+          creditFeedback.dataset.state = "success";
+        }
         await loadBilling();
         await loadProfile();
       } else {
         creditFeedback.innerText = "Falha ao registrar compra. Tente novamente.";
+        if (creditFeedback) {
+          creditFeedback.dataset.state = "error";
+        }
       }
     });
   }
@@ -956,13 +1608,16 @@ function bindLoginForms() {
     registerForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       feedback.innerText = "Criando conta...";
+      const documentValue = document.getElementById("reg-document").value.trim();
+      const companyValue = document.getElementById("reg-company").value.trim();
+      
       const payload = {
         name: document.getElementById("reg-name").value,
         email: document.getElementById("reg-email").value,
         phone: document.getElementById("reg-phone").value,
         password: document.getElementById("reg-password").value,
-        company_name: document.getElementById("reg-company").value,
-        document: document.getElementById("reg-document").value,
+        company_name: companyValue || null,
+        document: documentValue || null,
         plan_slug: document.getElementById("reg-plan").value,
       };
       const response = await apiFetch("/auth/register", {
@@ -972,9 +1627,58 @@ function bindLoginForms() {
       if (response?.ok) {
         const data = await response.json();
         setTokens(data.tokens);
+        
+        // Check if there's a pending subscription from home page
+        const pendingSubscription = sessionStorage.getItem('pending_subscription');
+        if (pendingSubscription) {
+          try {
+            const subscriptionData = JSON.parse(pendingSubscription);
+            feedback.innerText = "Conta criada! Redirecionando para pagamento...";
+            
+            // Store subscription intent for after login
+            sessionStorage.setItem('subscription_intent', JSON.stringify({
+              plan_id: parseInt(subscriptionData.plan_id),
+              payment_method: subscriptionData.payment_method
+            }));
+            sessionStorage.removeItem('pending_subscription');
+            
+            // Redirect to billing page to complete payment
+            window.location.href = "/billing?action=subscribe";
+            return;
+          } catch (error) {
+            console.error("Erro ao processar assinatura pendente:", error);
+            sessionStorage.removeItem('pending_subscription');
+          }
+        }
+        
         window.location.href = "/dashboard";
       } else {
-        feedback.innerText = "Não foi possível criar a conta. Verifique os dados.";
+        // Try to get detailed error message
+        try {
+          const errorData = await response.json();
+          if (errorData.detail && Array.isArray(errorData.detail)) {
+            // Pydantic validation errors
+            const errors = errorData.detail.map(err => {
+              const field = err.loc[err.loc.length - 1];
+              const fieldNames = {
+                'phone': 'Telefone',
+                'document': 'CPF/CNPJ',
+                'password': 'Senha',
+                'email': 'Email',
+                'name': 'Nome'
+              };
+              const friendlyField = fieldNames[field] || field;
+              return `${friendlyField}: ${err.msg.replace('Value error, ', '')}`;
+            });
+            feedback.innerText = errors.join(' | ');
+          } else if (typeof errorData.detail === 'string') {
+            feedback.innerText = errorData.detail;
+          } else {
+            feedback.innerText = "Não foi possível criar a conta. Verifique os dados.";
+          }
+        } catch (e) {
+          feedback.innerText = "Não foi possível criar a conta. Verifique os dados.";
+        }
       }
     });
   }
@@ -1192,11 +1896,10 @@ document.addEventListener("DOMContentLoaded", async () => {
       await loadDashboard();
     }
     if (currentPage === "chips") {
-      await loadChips();
-      document.getElementById("refresh-chips")?.addEventListener("click", loadChips);
+      await initChipsPage();
     }
     if (currentPage === "campaigns") {
-      await loadCampaigns();
+      await initCampaignsPage();
     }
     if (currentPage === "billing") {
       await loadBilling();
@@ -1205,6 +1908,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (currentPage === "settings") {
       bindProfileForm();
       bindWebhookForm();
+      bindApiKeysSection(profile);
       if (profile?.plan_features?.webhooks) {
         await loadWebhookSettings();
       } else {
@@ -1238,3 +1942,1179 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   globalThis.__WHAGO_READY = true;
 });
+
+async function handleChipHeatUp(button) {
+  const chipId = button?.dataset?.chipId;
+  if (!chipId) return;
+  button.setAttribute("disabled", "true");
+  setChipFeedback("Configurando plano de aquecimento...", "info");
+  const response = await apiFetch(`/chips/${chipId}/heat-up`, { method: "POST" });
+  if (!response?.ok) {
+    let detail = "Não foi possível iniciar o aquecimento do chip.";
+    try {
+      const error = await response.json();
+      if (typeof error?.detail === "string") {
+        detail = error.detail;
+      }
+    } catch (err) {
+      // Ignora erro ao ler resposta
+    }
+    setChipFeedback(detail, "error");
+    button.removeAttribute("disabled");
+    return;
+  }
+
+  const payload = await response.json();
+  renderHeatUpPlan(payload);
+  setChipFeedback(payload.message ?? "Plano de aquecimento iniciado.", "success");
+  await loadChips({ silent: true });
+  button.removeAttribute("disabled");
+}
+
+async function handleChipDisconnect(chipId) {
+  setChipFeedback("Desconectando chip...", "info");
+  const response = await apiFetch(`/chips/${chipId}/disconnect`, { method: "POST" });
+  if (!response?.ok) {
+    let detail = "Não foi possível desconectar o chip.";
+    try {
+      const error = await response.json();
+      if (typeof error?.detail === "string") {
+        detail = error.detail;
+      }
+    } catch (err) {
+      // Ignora erro ao ler resposta
+    }
+    setChipFeedback(detail, "error");
+    return;
+  }
+  setChipFeedback("Chip desconectado com sucesso.", "success");
+  await loadChips({ silent: true });
+}
+
+async function handleChipDelete(chipId) {
+  console.log('[handleChipDelete] Deletando chip:', chipId);
+  setChipFeedback("Deletando chip...", "info");
+  
+  try {
+    const response = await apiFetch(`/chips/${chipId}`, { method: "DELETE" });
+    console.log('[handleChipDelete] Response:', response?.status);
+    
+    if (!response?.ok) {
+      let detail = "Não foi possível deletar o chip.";
+      try {
+        const error = await response.json();
+        if (typeof error?.detail === "string") {
+          detail = error.detail;
+        }
+      } catch (err) {
+        console.error('[handleChipDelete] Erro ao ler resposta:', err);
+      }
+      setChipFeedback(detail, "error");
+      return;
+    }
+    
+    setChipFeedback("Chip deletado com sucesso.", "success");
+    await loadChips({ silent: true });
+  } catch (err) {
+    console.error('[handleChipDelete] Erro ao deletar:', err);
+    setChipFeedback("Erro ao deletar chip: " + err.message, "error");
+  }
+}
+
+function renderHeatUpPlan(payload) {
+  const container = document.getElementById("chip-events");
+  if (!container) return;
+  container.innerHTML = "";
+
+  const stages = payload?.stages ?? [];
+  if (!stages.length) {
+    const card = document.createElement("article");
+    card.className = "card";
+    card.innerHTML = '<p class="text-sm text-slate-500">Nenhum plano de aquecimento disponível no momento.</p>';
+    container.appendChild(card);
+    return;
+  }
+
+  const totalHours = payload.recommended_total_hours ?? stages.reduce((acc, stage) => acc + (stage.duration_hours ?? 0), 0);
+  const card = document.createElement("article");
+  card.className = "card space-y-4";
+  card.innerHTML = `
+    <div class="card__header">
+      <h3 class="card__title">Plano de aquecimento</h3>
+      <p class="card__subtitle">${totalHours}h totais recomendados para completar todas as fases.</p>
+    </div>
+  `;
+
+  const list = document.createElement("ol");
+  list.className = "space-y-3 text-sm text-slate-600";
+  stages.forEach((stage) => {
+    const item = document.createElement("li");
+    item.dataset.test = "chip-heatup-stage";
+    item.innerHTML = `
+      <div class="font-medium text-slate-700">Fase ${stage.stage}</div>
+      <p>${stage.messages_per_hour} mensagens por hora · ${stage.duration_hours}h</p>
+      <p class="text-xs text-slate-500">${stage.description}</p>
+    `;
+    list.appendChild(item);
+  });
+
+  card.appendChild(list);
+  container.appendChild(card);
+}
+
+function bindCampaignWizardElements() {
+  if (campaignState.wizard.element) {
+    return;
+  }
+  const wizard = document.getElementById("campaign-wizard");
+  const backdrop = document.getElementById("campaign-wizard-backdrop");
+  if (!wizard || !backdrop) return;
+
+  campaignState.wizard.element = wizard;
+  campaignState.wizard.backdrop = backdrop;
+  campaignState.wizard.steps = Array.from(document.querySelectorAll("#campaign-steps .wizard__step"));
+  campaignState.wizard.panels = Array.from(document.querySelectorAll("#campaign-wizard .wizard__panel"));
+
+  document.getElementById("campaign-wizard-close")?.addEventListener("click", closeCampaignWizard);
+  backdrop.addEventListener("click", closeCampaignWizard);
+  document.getElementById("campaign-basic-form")?.addEventListener("submit", handleCampaignBasicSubmit);
+  document.getElementById("campaign-chips-form")?.addEventListener("submit", handleCampaignChipsSubmit);
+  document.getElementById("campaign-contacts-form")?.addEventListener("submit", handleCampaignContactsSubmit);
+  document.getElementById("campaign-start-button")?.addEventListener("click", handleCampaignStart);
+  document.getElementById("campaign-basic-cancel")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    closeCampaignWizard();
+  });
+
+  const scheduleToggle = document.getElementById("campaign-schedule-toggle");
+  scheduleToggle?.addEventListener("change", (event) => {
+    const fields = document.getElementById("campaign-schedule-fields");
+    if (!fields) return;
+    fields.classList.toggle("hidden", !event.target.checked);
+  });
+
+  wizard.addEventListener("click", (event) => {
+    const backButton = event.target.closest("[data-step-back]");
+    if (backButton) {
+      const target = Number(backButton.dataset.stepBack);
+      goToCampaignStep(target);
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && wizard.classList.contains("hidden") === false) {
+      closeCampaignWizard();
+    }
+  });
+
+  const variableContainer = document.getElementById("campaign-variables");
+  variableContainer?.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-variable]");
+    if (!button) return;
+    const variable = button.dataset.variable;
+    if (!variable) return;
+    const textarea = document.getElementById("campaign-template");
+    insertVariableAtCursor(textarea, `{{${variable}}}`);
+  });
+
+  const mediaInput = document.getElementById("campaign-media");
+  mediaInput?.addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    if (!campaignState.campaignId) {
+      campaignState.pendingMediaFile = file;
+      setCampaignMediaFeedback("Arquivo pronto para envio. Salve as informações básicas para anexar.", "info");
+      return;
+    }
+    await uploadCampaignMedia(file);
+    event.target.value = "";
+  });
+}
+
+function resetCampaignWizard() {
+  campaignState.campaignId = null;
+  campaignState.currentStep = 1;
+  campaignState.contactsSummary = null;
+  campaignState.createdCampaign = null;
+  campaignState.selectedChips.clear();
+  campaignState.variables = [];
+  campaignState.media = [];
+  campaignState.pendingMediaFile = null;
+
+  document.getElementById("campaign-basic-form")?.reset();
+  document.getElementById("campaign-chips-form")?.reset();
+  document.getElementById("campaign-contacts-form")?.reset();
+  document.getElementById("campaign-contacts-summary")?.classList.add("hidden");
+  document.getElementById("campaign-variables-summary")?.classList.add("hidden");
+  document.getElementById("campaign-schedule-fields")?.classList.add("hidden");
+  document.getElementById("campaign-review")?.replaceChildren();
+  document.getElementById("campaign-wizard-subtitle").textContent = "Preencha as etapas abaixo para concluir sua campanha.";
+  renderCampaignVariables();
+  renderCampaignVariablesSummary();
+  renderCampaignMediaList();
+  setCampaignMediaFeedback("Formatos aceitos: imagens, PDF, áudio (MP3/OGG) e vídeo MP4 até 10MB.", "info");
+  campaignState.wizard.panels.forEach((panel) => panel.classList.add("hidden"));
+  campaignState.wizard.steps.forEach((step) => step.classList.remove("wizard__step--active"));
+  goToCampaignStep(1, true);
+}
+
+function updateCampaignSteps(step) {
+  campaignState.wizard.steps.forEach((item) => {
+    const itemStep = Number(item.dataset.step);
+    if (Number.isNaN(itemStep)) return;
+    item.classList.toggle("wizard__step--active", itemStep === step);
+  });
+}
+
+function goToCampaignStep(step, initial = false) {
+  campaignState.currentStep = step;
+  campaignState.wizard.panels.forEach((panel) => {
+    const panelStep = Number(panel.id.split("-").pop());
+    panel.classList.toggle("hidden", panelStep !== step);
+  });
+  updateCampaignSteps(step);
+  if (!initial) {
+    const titles = {
+      1: "Informe os detalhes principais da campanha",
+      2: "Selecione quais chips participarão da rotação",
+      3: "Importe a base de contatos da campanha",
+      4: "Revise e dispare sua campanha",
+    };
+    const subtitle = document.getElementById("campaign-wizard-subtitle");
+    if (subtitle && titles[step]) {
+      subtitle.textContent = titles[step];
+    }
+  }
+}
+
+function openCampaignWizard() {
+  bindCampaignWizardElements();
+  resetCampaignWizard();
+  campaignState.wizard.element?.classList.remove("hidden");
+  campaignState.wizard.backdrop?.classList.remove("hidden");
+}
+
+function closeCampaignWizard() {
+  campaignState.wizard.element?.classList.add("hidden");
+  campaignState.wizard.backdrop?.classList.add("hidden");
+  resetCampaignWizard();
+}
+
+async function handleCampaignBasicSubmit(event) {
+  event.preventDefault();
+  if (campaignState.campaignId) {
+    goToCampaignStep(2);
+    await loadCampaignWizardChips();
+    return;
+  }
+  const nameInput = document.getElementById("campaign-name");
+  const templateInput = document.getElementById("campaign-template");
+  if (!nameInput?.value || !templateInput?.value) {
+    setCampaignFeedback("Informe nome e mensagem principal para continuar.", "warning");
+    return;
+  }
+  const payload = {
+    name: nameInput.value.trim(),
+    description: document.getElementById("campaign-description")?.value?.trim() || null,
+    message_template: templateInput.value,
+    message_template_b: document.getElementById("campaign-template-b")?.value?.trim() || null,
+    settings: {
+      chip_ids: [],
+      interval_seconds: 10,
+      randomize_interval: false,
+    },
+  };
+  const scheduleToggle = document.getElementById("campaign-schedule-toggle");
+  const scheduleDatetime = document.getElementById("campaign-schedule-datetime");
+  if (scheduleToggle?.checked) {
+    if (!scheduleDatetime?.value) {
+      setCampaignFeedback("Informe a data e hora para agendamento ou desmarque o agendamento.", "warning");
+      return;
+    }
+    const date = new Date(scheduleDatetime.value);
+    if (Number.isNaN(date.getTime())) {
+      setCampaignFeedback("Data de agendamento inválida.", "error");
+      return;
+    }
+    payload.scheduled_for = date.toISOString();
+  }
+
+  const mediaInput = document.getElementById("campaign-media");
+  const pendingFile = mediaInput?.files?.[0] ?? null;
+  if (pendingFile) {
+    campaignState.pendingMediaFile = pendingFile;
+  }
+
+  const response = await apiFetch("/campaigns", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  if (!response?.ok) {
+    const message = await response.text();
+    setCampaignFeedback(message || "Não foi possível criar a campanha.", "error");
+    return;
+  }
+  const data = await response.json();
+  campaignState.campaignId = data.id;
+  campaignState.createdCampaign = data;
+  campaignState.media = Array.isArray(data.media) ? data.media : [];
+  setCampaignFeedback("Campanha criada como rascunho. Continue para selecionar chips.", "success");
+  renderCampaignMediaList();
+  await maybeUploadPendingMedia();
+  if (mediaInput) {
+    mediaInput.value = "";
+  }
+  await loadCampaignWizardChips();
+  goToCampaignStep(2);
+}
+
+async function loadCampaignWizardChips() {
+  const response = await apiFetch("/chips");
+  if (!response?.ok) {
+    setCampaignFeedback("Não foi possível carregar a lista de chips.", "error");
+    return;
+  }
+  const chips = await response.json();
+  campaignState.chipCache = chips;
+  renderCampaignChips(chips);
+}
+
+function renderCampaignChips(chips) {
+  const container = document.getElementById("campaign-chips-list");
+  if (!container) return;
+  container.innerHTML = "";
+  if (!chips.length) {
+    container.innerHTML = '<p class="text-sm text-slate-500">Nenhum chip disponível. Cadastre chips antes de prosseguir.</p>';
+    return;
+  }
+  chips.forEach((chip) => {
+    const card = document.createElement("label");
+    const disabled = !["connected", "maturing", "waiting_qr"].includes((chip.status || "").toLowerCase());
+    card.className = `card space-y-2 ${disabled ? "opacity-60" : ""}`;
+    card.innerHTML = `
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <p class="font-medium text-slate-700">${chip.alias}</p>
+          <p class="text-xs text-slate-500">Status: ${formatChipStatus(chip.status)}</p>
+        </div>
+        <input type="checkbox" value="${chip.id}" ${disabled ? "disabled" : ""} class="rounded border-slate-300" data-test="campaign-chip" />
+      </div>
+      <p class="text-xs text-slate-500">Saúde: ${chip.health_score ?? "--"}</p>
+    `;
+    container.appendChild(card);
+  });
+}
+
+async function handleCampaignChipsSubmit(event) {
+  event.preventDefault();
+  if (!campaignState.campaignId) {
+    setCampaignFeedback("Crie a campanha antes de selecionar os chips.", "warning");
+    return;
+  }
+  const checkboxes = Array.from(document.querySelectorAll("#campaign-chips-list input[type='checkbox']:checked"));
+  if (!checkboxes.length) {
+    setCampaignFeedback("Selecione ao menos um chip para continuar.", "warning");
+    return;
+  }
+  const chipIds = checkboxes.map((input) => input.value);
+  campaignState.selectedChips = new Set(chipIds);
+  const intervalSeconds = Number(document.getElementById("campaign-interval")?.value || "10");
+  const randomize = Boolean(document.getElementById("campaign-randomize")?.checked);
+  const response = await apiFetch(`/campaigns/${campaignState.campaignId}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      settings: {
+        chip_ids: chipIds,
+        interval_seconds: Number.isFinite(intervalSeconds) && intervalSeconds > 0 ? intervalSeconds : 10,
+        randomize_interval: randomize,
+      },
+    }),
+  });
+  if (!response?.ok) {
+    const message = await response.text();
+    setCampaignFeedback(message || "Não foi possível salvar as configurações de chips.", "error");
+    return;
+  }
+  const data = await response.json();
+  campaignState.createdCampaign = data;
+  campaignState.media = Array.isArray(data.media) ? data.media : campaignState.media;
+  setCampaignFeedback("Chips configurados com sucesso. Importe os contatos.", "success");
+  renderCampaignMediaList();
+  goToCampaignStep(3);
+}
+
+async function handleCampaignContactsSubmit(event) {
+  event.preventDefault();
+  if (!campaignState.campaignId) {
+    setCampaignFeedback("Crie a campanha antes de importar contatos.", "warning");
+    return;
+  }
+  const fileInput = document.getElementById("campaign-contacts-file");
+  const file = fileInput?.files?.[0];
+  if (!file) {
+    setCampaignFeedback("Selecione um arquivo CSV para importar.", "warning");
+    return;
+  }
+  const token = getAccessToken();
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await fetch(`${API_BASE}/campaigns/${campaignState.campaignId}/contacts/upload`, {
+    method: "POST",
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    body: formData,
+  });
+  if (!response.ok) {
+    const message = await response.text();
+    setCampaignFeedback(message || "Falha ao importar contatos.", "error");
+    return;
+  }
+  const summary = await response.json();
+  campaignState.contactsSummary = summary;
+  campaignState.variables = Array.isArray(summary.variables) ? summary.variables : [];
+  renderCampaignVariables();
+  renderCampaignVariablesSummary();
+  const summaryElement = document.getElementById("campaign-contacts-summary");
+  if (summaryElement) {
+    summaryElement.classList.remove("hidden");
+    summaryElement.innerHTML = `
+      <p><strong>${summary.valid_contacts}</strong> contatos válidos (Total processado: ${summary.total_processed}).</p>
+      <p>Inválidos: ${summary.invalid_contacts} · Duplicados: ${summary.duplicated}</p>
+    `;
+  }
+  setCampaignFeedback("Contatos importados! Revise e finalize o disparo.", "success");
+  await populateCampaignReview();
+  goToCampaignStep(4);
+}
+
+async function populateCampaignReview() {
+  if (!campaignState.campaignId) return;
+  const response = await apiFetch(`/campaigns/${campaignState.campaignId}`);
+  if (!response?.ok) return;
+  const data = await response.json();
+  campaignState.createdCampaign = data;
+  campaignState.media = Array.isArray(data.media) ? data.media : campaignState.media;
+  renderCampaignMediaList();
+  renderCampaignReview();
+}
+
+function renderCampaignReview() {
+  const container = document.getElementById("campaign-review");
+  if (!container || !campaignState.createdCampaign) return;
+  const campaign = campaignState.createdCampaign;
+  const chipsSelected = Array.from(campaignState.selectedChips);
+  const chipAliasMap = new Map(campaignState.chipCache.map((chip) => [chip.id, chip.alias]));
+  const chipList = chipsSelected
+    .map((id) => `<li>${chipAliasMap.get(id) || id}</li>`)
+    .join("");
+  const summary = campaignState.contactsSummary;
+  const variablesSection = campaignState.variables.length
+    ? `<div class="space-y-2">
+        <h4 class="font-medium text-slate-700">Variáveis detectadas</h4>
+        <p class="text-sm text-slate-600">${campaignState.variables.map((variable) => `{{${variable}}}`).join(", ")}</p>
+      </div>`
+    : "";
+  const mediaSection = campaignState.media.length
+    ? `<div class="space-y-2">
+        <h4 class="font-medium text-slate-700">Arquivos anexados (${campaignState.media.length})</h4>
+        <ul class="list-disc space-y-1 pl-5 text-sm text-slate-600">
+          ${campaignState.media
+            .map((item) => `<li>${item.original_name} · ${formatBytes(item.size_bytes)}</li>`)
+            .join("")}
+        </ul>
+      </div>`
+    : `<div class="space-y-2">
+        <h4 class="font-medium text-slate-700">Arquivos anexados</h4>
+        <p class="text-sm text-slate-600">Nenhum anexo enviado.</p>
+      </div>`;
+  container.innerHTML = `
+    <div class="space-y-2">
+      <h4 class="font-medium text-slate-700">Informações principais</h4>
+      <p class="text-sm text-slate-600"><strong>Nome:</strong> ${campaign.name}</p>
+      <p class="text-sm text-slate-600"><strong>Status:</strong> ${formatCampaignStatus(campaign.status)}</p>
+      <p class="text-sm text-slate-600"><strong>Agendamento:</strong> ${campaign.scheduled_for ? formatDate(campaign.scheduled_for) : "Envio imediato"}</p>
+    </div>
+    <div class="space-y-2">
+      <h4 class="font-medium text-slate-700">Mensagem principal</h4>
+      <pre class="rounded-xl bg-slate-900/90 p-4 text-xs text-slate-100">${campaign.message_template}</pre>
+      ${campaign.message_template_b ? `<p class="text-xs text-slate-500">Mensagem B configurada para testes A/B.</p>` : ""}
+    </div>
+    ${variablesSection}
+    <div class="space-y-2">
+      <h4 class="font-medium text-slate-700">Chips selecionados (${chipsSelected.length})</h4>
+      <ul class="list-disc space-y-1 pl-5 text-sm text-slate-600">${chipList || "<li>Nenhum chip selecionado.</li>"}</ul>
+    </div>
+    <div class="space-y-2">
+      <h4 class="font-medium text-slate-700">Contatos importados</h4>
+      ${summary
+        ? `<p class="text-sm text-slate-600">${summary.valid_contacts} contatos válidos · ${summary.invalid_contacts} inválidos · ${summary.duplicated} duplicados.</p>`
+        : '<p class="text-sm text-slate-600">Importe os contatos antes de iniciar.</p>'}
+    </div>
+    ${mediaSection}
+  `;
+}
+
+async function handleCampaignStart() {
+  if (!campaignState.campaignId) return;
+  const response = await apiFetch(`/campaigns/${campaignState.campaignId}/start`, {
+    method: "POST",
+  });
+  if (!response?.ok) {
+    const message = await response.text();
+    setCampaignFeedback(message || "Não foi possível iniciar a campanha.", "error");
+    return;
+  }
+  const data = await response.json();
+  setCampaignFeedback(`Campanha iniciada com status ${formatCampaignStatus(data.status)}.`, "success");
+  closeCampaignWizard();
+  await loadCampaigns({ silent: true });
+}
+
+function bindCampaignsPage() {
+  document.querySelector("[data-test='campaign-wizard-open']")?.addEventListener("click", () => {
+    openCampaignWizard();
+  });
+  document.getElementById("campaigns-refresh")?.addEventListener("click", () => {
+    void loadCampaigns({ toast: "Lista de campanhas atualizada." });
+  });
+  const table = document.querySelector("#campaign-table tbody");
+  table?.addEventListener("click", (event) => {
+    const actionButton = event.target.closest("[data-campaign-action]");
+    if (!actionButton) return;
+    const campaignId = actionButton.dataset.campaignId;
+    const action = actionButton.dataset.campaignAction;
+    void handleCampaignRowAction(campaignId, action);
+  });
+}
+
+function buildCampaignActionButtons(campaign) {
+  const status = (campaign.status || "").toLowerCase();
+  const buttons = [];
+  if (status === "draft" || status === "scheduled") {
+    buttons.push(`<button data-campaign-action="start" data-campaign-id="${campaign.id}" class="btn-primary btn-xs" type="button">Iniciar</button>`);
+  }
+  if (status === "running") {
+    buttons.push(`<button data-campaign-action="pause" data-campaign-id="${campaign.id}" class="btn-secondary btn-xs" type="button">Pausar</button>`);
+    buttons.push(`<button data-campaign-action="cancel" data-campaign-id="${campaign.id}" class="btn-secondary btn-xs" type="button">Cancelar</button>`);
+  }
+  if (status === "paused") {
+    buttons.push(`<button data-campaign-action="resume" data-campaign-id="${campaign.id}" class="btn-primary btn-xs" type="button">Retomar</button>`);
+    buttons.push(`<button data-campaign-action="cancel" data-campaign-id="${campaign.id}" class="btn-secondary btn-xs" type="button">Cancelar</button>`);
+  }
+  return buttons.join(" ");
+}
+
+async function handleCampaignRowAction(campaignId, action) {
+  if (!campaignId || !action) return;
+  let endpoint;
+  if (action === "start" || action === "resume") {
+    endpoint = `/campaigns/${campaignId}/start`;
+  } else if (action === "pause") {
+    endpoint = `/campaigns/${campaignId}/pause`;
+  } else if (action === "cancel") {
+    endpoint = `/campaigns/${campaignId}/cancel`;
+  } else {
+    return;
+  }
+  const response = await apiFetch(endpoint, { method: "POST" });
+  if (!response?.ok) {
+    const message = await response.text();
+    setCampaignFeedback(message || "Não foi possível executar a ação na campanha.", "error");
+    return;
+  }
+  const data = await response.json();
+  setCampaignFeedback(`Campanha atualizada: ${formatCampaignStatus(data.status)}.`, "success");
+  await loadCampaigns({ silent: true });
+}
+
+function renderCampaignInsights(campaigns) {
+  const container = document.getElementById("campaign-insights-body");
+  const emptyState = document.getElementById("campaign-insights-empty");
+  if (!container) return;
+  container.innerHTML = "";
+  if (!campaigns.length) {
+    emptyState?.classList.remove("hidden");
+    return;
+  }
+  emptyState?.classList.add("hidden");
+  const total = campaigns.length;
+  const running = campaigns.filter((c) => c.status === "running").length;
+  const scheduled = campaigns.filter((c) => c.status === "scheduled").length;
+  const drafts = campaigns.filter((c) => c.status === "draft").length;
+  const completed = campaigns.filter((c) => c.status === "completed").length;
+  container.innerHTML = `
+    <div>
+      <dt class="card__label">Campanhas totais</dt>
+      <dd class="card__value">${total}</dd>
+    </div>
+    <div>
+      <dt class="card__label">Em andamento</dt>
+      <dd class="card__value">${running}</dd>
+    </div>
+    <div>
+      <dt class="card__label">Agendadas</dt>
+      <dd class="card__value">${scheduled}</dd>
+    </div>
+    <div>
+      <dt class="card__label">Rascunhos</dt>
+      <dd class="card__value">${drafts}</dd>
+    </div>
+    <div>
+      <dt class="card__label">Concluídas</dt>
+      <dd class="card__value">${completed}</dd>
+    </div>
+  `;
+}
+
+function renderCampaignMessages(messages) {
+  const tableBody = document.querySelector("#campaign-messages-table tbody");
+  const empty = document.getElementById("campaign-messages-empty");
+  if (!tableBody) return;
+  tableBody.innerHTML = "";
+  if (!messages || !messages.length) {
+    empty?.classList.remove("hidden");
+    return;
+  }
+  empty?.classList.add("hidden");
+  messages.forEach((message) => {
+    const row = document.createElement("tr");
+    row.innerHTML = `
+      <td class="py-2 font-medium text-slate-700">${message.phone_number}</td>
+      <td class="py-2 text-slate-600">${message.chip_alias ?? "--"}</td>
+      <td class="py-2"><span class="status status-${(message.status || "").toLowerCase()}">${message.status}</span></td>
+      <td class="py-2 text-slate-500">${formatDate(message.sent_at)}</td>
+    `;
+    tableBody.appendChild(row);
+  });
+}
+
+async function loadCampaignMessagesPreview(campaignId) {
+  const response = await apiFetch(`/campaigns/${campaignId}/messages?limit=8`);
+  if (!response?.ok) {
+    renderCampaignMessages([]);
+    return;
+  }
+  const data = await response.json();
+  renderCampaignMessages(data);
+}
+
+async function loadCampaigns(options = {}) {
+  const response = await apiFetch("/campaigns");
+  if (!response?.ok) {
+    setCampaignFeedback("Não foi possível carregar campanhas.", "error");
+    return;
+  }
+  const campaigns = await response.json();
+  const table = document.querySelector("#campaign-table tbody");
+  if (table) {
+    table.innerHTML = "";
+    campaigns.forEach((campaign) => {
+      const chipsSelected = Array.isArray(campaign.settings?.chip_ids) ? campaign.settings.chip_ids.length : 0;
+      const total = campaign.total_contacts ?? 0;
+      const sent = campaign.sent_count ?? 0;
+      const progress = total > 0 ? `${sent}/${total}` : "--";
+      const row = document.createElement("tr");
+      row.dataset.campaignId = campaign.id;
+      row.innerHTML = `
+        <td class="py-2 font-medium text-slate-800">${campaign.name}</td>
+        <td class="py-2"><span class="${getCampaignStatusClass(campaign.status)}">${formatCampaignStatus(campaign.status)}</span></td>
+        <td class="py-2">${progress}</td>
+        <td class="py-2">${chipsSelected} chips</td>
+        <td class="py-2">${formatDate(campaign.created_at)}</td>
+        <td class="py-2 text-right">${buildCampaignActionButtons(campaign)}</td>
+      `;
+      table.appendChild(row);
+    });
+  }
+  renderCampaignInsights(campaigns);
+  const previewTarget = campaigns.find((c) => c.status === "running") || campaigns[0];
+  if (previewTarget) {
+    await loadCampaignMessagesPreview(previewTarget.id);
+  } else {
+    renderCampaignMessages([]);
+  }
+  if (options.toast) {
+    setCampaignFeedback(options.toast, "success");
+  } else if (!options.silent) {
+    setCampaignFeedback("Campanhas carregadas com sucesso.", "success");
+  }
+}
+
+async function initCampaignsPage() {
+  bindCampaignWizardElements();
+  bindCampaignsPage();
+  await loadCampaigns();
+}
+
+const apiKeyState = {
+  items: [],
+  bound: false,
+};
+
+function setApiKeyFeedback(message, variant = "info") {
+  const feedback = document.getElementById("api-key-feedback");
+  if (!feedback) return;
+  feedback.classList.remove("text-slate-500", "text-red-600", "text-emerald-600", "text-amber-600");
+  if (variant === "error") {
+    feedback.classList.add("text-red-600");
+  } else if (variant === "success") {
+    feedback.classList.add("text-emerald-600");
+  } else if (variant === "warning") {
+    feedback.classList.add("text-amber-600");
+  } else {
+    feedback.classList.add("text-slate-500");
+  }
+  feedback.innerText = message;
+}
+
+function renderApiKeys(keys) {
+  const tbody = document.getElementById("api-key-list");
+  if (!tbody) return;
+  tbody.innerHTML = "";
+  if (!keys.length) {
+    const emptyRow = document.createElement("tr");
+    emptyRow.innerHTML = '<td class="py-3 text-center text-slate-500" colspan="6">Nenhuma chave cadastrada.</td>';
+    tbody.appendChild(emptyRow);
+    return;
+  }
+  keys.forEach((key) => {
+    const tr = document.createElement("tr");
+    const statusLabel = key.revoked_at ? "Revogada" : "Ativa";
+    const statusClass = key.revoked_at ? "text-red-600" : "text-emerald-600";
+    tr.innerHTML = `
+      <td class="py-2 font-medium text-slate-800">${key.name}</td>
+      <td class="py-2 text-slate-600">${key.prefix}</td>
+      <td class="py-2 text-slate-600">${formatDate(key.created_at)}</td>
+      <td class="py-2 text-slate-600">${key.last_used_at ? formatDate(key.last_used_at) : "Nunca"}</td>
+      <td class="py-2 ${statusClass}">${statusLabel}</td>
+      <td class="py-2 text-right">
+        ${key.revoked_at ? "" : `<button type="button" class="btn-secondary btn-xs" data-api-key-revoke="${key.id}">Revogar</button>`}
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function openApiKeyModal(value) {
+  const modal = document.getElementById("api-key-modal");
+  const backdrop = document.getElementById("api-key-modal-backdrop");
+  if (!modal) return;
+  const container = document.getElementById("api-key-modal-value");
+  const code = container?.querySelector("code");
+  if (container && code) {
+    container.dataset.keyValue = value;
+    code.innerText = value;
+  }
+  modal.classList.remove("hidden");
+  backdrop?.classList.remove("hidden");
+  document.body.classList.add("overflow-hidden");
+}
+
+function closeApiKeyModal() {
+  const modal = document.getElementById("api-key-modal");
+  const backdrop = document.getElementById("api-key-modal-backdrop");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  backdrop?.classList.add("hidden");
+  document.body.classList.remove("overflow-hidden");
+}
+
+function bindApiKeyModal() {
+  const modal = document.getElementById("api-key-modal");
+  if (!modal || modal.dataset.bound === "true") return;
+  modal.dataset.bound = "true";
+  const backdrop = document.getElementById("api-key-modal-backdrop");
+  document.getElementById("api-key-modal-close")?.addEventListener("click", closeApiKeyModal);
+  backdrop?.addEventListener("click", closeApiKeyModal);
+  document.getElementById("api-key-copy")?.addEventListener("click", async () => {
+    const container = document.getElementById("api-key-modal-value");
+    if (!container) return;
+    const key = container.dataset.keyValue;
+    if (!key) return;
+    try {
+      await navigator.clipboard.writeText(key);
+      setApiKeyFeedback("Chave copiada para a área de transferência.", "success");
+    } catch (error) {
+      console.error(error);
+      setApiKeyFeedback("Não foi possível copiar automaticamente. Copie manualmente.", "warning");
+    }
+  });
+}
+
+async function refreshApiKeys() {
+  const response = await apiFetch("/api-keys");
+  if (!response) return;
+  if (response.status === 403) {
+    setApiKeyFeedback("Seu plano não possui acesso à API externa.", "error");
+    return;
+  }
+  if (!response.ok) {
+    const message = (await safeReadText(response)) ?? "Não foi possível carregar as chaves de API.";
+    setApiKeyFeedback(message, "error");
+    return;
+  }
+  apiKeyState.items = await response.json();
+  renderApiKeys(apiKeyState.items);
+  if (apiKeyState.items.length) {
+    setApiKeyFeedback(`Você possui ${apiKeyState.items.length} chave(s) ativa(s).`, "success");
+  } else {
+    setApiKeyFeedback("Sem chaves cadastradas. Gere uma nova para iniciar uma integração.", "info");
+  }
+}
+
+async function handleApiKeyCreate(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const input = form.querySelector("#api-key-name");
+  const name = input?.value.trim();
+  if (!name) {
+    setApiKeyFeedback("Informe um nome para a chave.", "error");
+    return;
+  }
+  setApiKeyFeedback("Gerando chave...");
+  const response = await apiFetch("/api-keys", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+  if (!response) return;
+  if (response.status === 403) {
+    setApiKeyFeedback("Seu plano não possui acesso à API externa.", "error");
+    return;
+  }
+  if (!response.ok) {
+    const message = (await safeReadText(response)) ?? "Não foi possível gerar a chave. Tente novamente.";
+    setApiKeyFeedback(message, "error");
+    return;
+  }
+  const data = await response.json();
+  input.value = "";
+  await refreshApiKeys();
+  openApiKeyModal(data.key);
+  setApiKeyFeedback("Nova chave criada com sucesso.", "success");
+}
+
+async function handleApiKeyRevoke(keyId) {
+  setApiKeyFeedback("Revogando chave...");
+  const response = await apiFetch(`/api-keys/${keyId}`, { method: "DELETE" });
+  if (!response) return;
+  if (!response.ok) {
+    const message = (await safeReadText(response)) ?? "Não foi possível revogar a chave.";
+    setApiKeyFeedback(message, "error");
+    return;
+  }
+  await refreshApiKeys();
+  setApiKeyFeedback("Chave revogada com sucesso.", "success");
+}
+
+function bindApiKeysSection(profile) {
+  const manager = document.getElementById("api-key-manager");
+  const upgrade = document.getElementById("api-key-upgrade");
+  if (!manager || !upgrade) return;
+  bindApiKeyModal();
+  const hasAccess = Boolean(profile?.plan_features?.api_access);
+  if (!hasAccess) {
+    upgrade.classList.remove("hidden");
+    manager.classList.add("hidden");
+    setApiKeyFeedback("");
+    return;
+  }
+  upgrade.classList.add("hidden");
+  manager.classList.remove("hidden");
+  if (!apiKeyState.bound) {
+    apiKeyState.bound = true;
+    const form = document.getElementById("api-key-form");
+    form?.addEventListener("submit", handleApiKeyCreate);
+    document.getElementById("api-key-list")?.addEventListener("click", async (event) => {
+      const button = event.target.closest("[data-api-key-revoke]");
+      if (!button) return;
+      const keyId = button.getAttribute("data-api-key-revoke");
+      button.setAttribute("disabled", "true");
+      await handleApiKeyRevoke(keyId);
+      button.removeAttribute("disabled");
+    });
+  }
+  void refreshApiKeys();
+}
+// ========================================
+// BILLING & PAYMENTS
+// ========================================
+
+async function loadSubscriptionInfo() {
+  try {
+    const profile = await apiFetch(`${API_BASE}/users/profile`);
+    
+    const planName = profile.plan?.name || "Free";
+    const subscriptionStatus = profile.subscription_status || null;
+    const subscriptionGateway = profile.subscription_gateway || null;
+    const nextBillingDate = profile.next_billing_date || null;
+    const subscriptionStartedAt = profile.subscription_started_at || null;
+    
+    document.getElementById("billing-current-plan").textContent = planName;
+    
+    // Status badge
+    const statusEl = document.getElementById("billing-subscription-status");
+    if (subscriptionStatus) {
+      const statusMap = {
+        active: { text: "Ativa", class: "bg-green-100 text-green-800" },
+        paused: { text: "Pausada", class: "bg-yellow-100 text-yellow-800" },
+        cancelled: { text: "Cancelada", class: "bg-red-100 text-red-800" },
+        pending: { text: "Pendente", class: "bg-blue-100 text-blue-800" },
+      };
+      const status = statusMap[subscriptionStatus] || { text: subscriptionStatus, class: "bg-gray-100 text-gray-800" };
+      statusEl.innerHTML = `<span class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${status.class}">${status.text}</span>`;
+    }
+    
+    // Gateway
+    if (subscriptionGateway) {
+      const gatewayNames = {
+        mercadopago: "Mercado Pago",
+        paypal: "PayPal",
+        stripe: "Stripe",
+      };
+      document.getElementById("billing-gateway").textContent = gatewayNames[subscriptionGateway] || subscriptionGateway;
+    }
+    
+    // Next billing
+    if (nextBillingDate) {
+      const date = new Date(nextBillingDate);
+      document.getElementById("billing-renewal").textContent = date.toLocaleDateString("pt-BR");
+    }
+    
+    // Started at
+    if (subscriptionStartedAt) {
+      const date = new Date(subscriptionStartedAt);
+      document.getElementById("billing-started-at").textContent = date.toLocaleDateString("pt-BR");
+      document.getElementById("subscription-dates-container").style.display = "block";
+    }
+    
+    // Show/hide buttons
+    const cancelBtn = document.getElementById("cancel-subscription-btn");
+    const changeBtn = document.getElementById("change-payment-method-btn");
+    
+    if (subscriptionStatus === "active") {
+      cancelBtn.classList.remove("hidden");
+      changeBtn.classList.remove("hidden");
+    } else {
+      cancelBtn.classList.add("hidden");
+      changeBtn.classList.add("hidden");
+    }
+    
+  } catch (error) {
+    console.error("Erro ao carregar informações de assinatura:", error);
+  }
+}
+
+async function handleCancelSubscription() {
+  const confirmed = confirm(
+    "Tem certeza que deseja cancelar sua assinatura?\n\n" +
+    "Você manterá acesso ao plano até o fim do período já pago."
+  );
+  
+  if (!confirmed) return;
+  
+  const feedbackEl = document.getElementById("subscription-feedback");
+  const btn = document.getElementById("cancel-subscription-btn");
+  
+  try {
+    btn.setAttribute("disabled", "true");
+    btn.textContent = "Cancelando...";
+    feedbackEl.textContent = "Processando cancelamento...";
+    feedbackEl.className = "mt-4 text-sm text-blue-600";
+    
+    await apiFetch(`${API_BASE}/payments/subscriptions`, { method: "DELETE" });
+    
+    feedbackEl.textContent = "Assinatura cancelada com sucesso!";
+    feedbackEl.className = "mt-4 text-sm text-green-600";
+    
+    setTimeout(() => {
+      window.location.reload();
+    }, 2000);
+    
+  } catch (error) {
+    console.error("Erro ao cancelar assinatura:", error);
+    feedbackEl.textContent = "Erro ao cancelar assinatura. Tente novamente.";
+    feedbackEl.className = "mt-4 text-sm text-red-600";
+    btn.removeAttribute("disabled");
+    btn.textContent = "Cancelar Assinatura";
+  }
+}
+
+async function loadPaymentMethods() {
+  try {
+    const response = await fetch(`${API_BASE}/payments/methods`);
+    if (!response.ok) {
+      throw new Error("Erro ao carregar métodos de pagamento");
+    }
+    const data = await response.json();
+    const methods = data.methods.filter(m => m.enabled);
+    
+    const select = document.getElementById("credit-payment-method");
+    if (select) {
+      select.innerHTML = methods.map(m => 
+        `<option value="${m.id}">${m.name}</option>`
+      ).join("");
+    }
+  } catch (error) {
+    console.error("Erro ao carregar métodos de pagamento:", error);
+  }
+}
+
+function updateCreditPrice() {
+  const amountInput = document.getElementById("credit-amount");
+  const priceEl = document.getElementById("credit-price");
+  
+  if (!amountInput || !priceEl) return;
+  
+  const amount = parseInt(amountInput.value) || 0;
+  const price = (amount * 0.10).toFixed(2);
+  priceEl.textContent = price;
+}
+
+async function handleCreditPurchase(event) {
+  event.preventDefault();
+  
+  const amountInput = document.getElementById("credit-amount");
+  const methodSelect = document.getElementById("credit-payment-method");
+  const feedbackEl = document.getElementById("credit-purchase-feedback");
+  const submitBtn = event.target.querySelector('button[type="submit"]');
+  
+  const amount = parseInt(amountInput.value);
+  const paymentMethod = methodSelect.value;
+  
+  if (!amount || amount < 100) {
+    feedbackEl.textContent = "Quantidade mínima: 100 créditos";
+    feedbackEl.className = "text-sm text-red-600";
+    return;
+  }
+  
+  try {
+    submitBtn.setAttribute("disabled", "true");
+    submitBtn.textContent = "Processando...";
+    feedbackEl.textContent = "Gerando pagamento...";
+    feedbackEl.className = "text-sm text-blue-600";
+    
+    const response = await apiFetch("/payments/credits", {
+      method: "POST",
+      body: JSON.stringify({
+        credits: amount,
+        payment_method: paymentMethod,
+      }),
+    });
+    
+    if (!response?.ok) {
+      throw new Error("Erro ao gerar pagamento");
+    }
+    
+    const data = await response.json();
+    
+    feedbackEl.textContent = "Redirecionando para pagamento...";
+    
+    // Redirect to payment URL
+    if (data.payment_url) {
+      window.location.href = data.payment_url;
+    } else {
+      throw new Error("URL de pagamento não recebida");
+    }
+    
+  } catch (error) {
+    console.error("Erro ao comprar créditos:", error);
+    feedbackEl.textContent = error.message || "Erro ao processar compra. Tente novamente.";
+    feedbackEl.className = "text-sm text-red-600";
+    submitBtn.removeAttribute("disabled");
+    submitBtn.textContent = "Comprar Créditos";
+  }
+}
+
+function bindBillingPage() {
+  // Cancel subscription button
+  const cancelBtn = document.getElementById("cancel-subscription-btn");
+  if (cancelBtn) {
+    cancelBtn.addEventListener("click", handleCancelSubscription);
+  }
+  
+  // Credit purchase form
+  const creditForm = document.getElementById("credit-purchase-form");
+  if (creditForm) {
+    creditForm.addEventListener("submit", handleCreditPurchase);
+    
+    const amountInput = document.getElementById("credit-amount");
+    if (amountInput) {
+      amountInput.addEventListener("input", updateCreditPrice);
+      updateCreditPrice(); // Initial update
+    }
+  }
+  
+  // Load data
+  loadSubscriptionInfo();
+  loadPaymentMethods();
+  
+  // Check for subscription intent from registration
+  const urlParams = new URLSearchParams(window.location.search);
+  if (urlParams.get('action') === 'subscribe') {
+    processSubscriptionIntent();
+  }
+}
+
+async function processSubscriptionIntent() {
+  const subscriptionIntent = sessionStorage.getItem('subscription_intent');
+  if (!subscriptionIntent) {
+    return;
+  }
+  
+  try {
+    const intentData = JSON.parse(subscriptionIntent);
+    
+    // Show loading message
+    const feedbackEl = document.getElementById("subscription-feedback");
+    if (feedbackEl) {
+      feedbackEl.textContent = "Gerando link de pagamento...";
+      feedbackEl.className = "mt-4 text-sm text-blue-600";
+    }
+    
+    // Create subscription (which generates payment link but doesn't activate)
+    const response = await apiFetch("/payments/subscriptions", {
+      method: "POST",
+      body: JSON.stringify({
+        plan_id: intentData.plan_id,
+        payment_method: intentData.payment_method
+      }),
+    });
+    
+    if (response?.ok) {
+      const data = await response.json();
+      sessionStorage.removeItem('subscription_intent');
+      
+      // Redirect to payment gateway
+      window.location.href = data.payment_url;
+    } else {
+      const error = await response.text();
+      if (feedbackEl) {
+        feedbackEl.textContent = error || "Erro ao gerar pagamento. Tente novamente.";
+        feedbackEl.className = "mt-4 text-sm text-red-600";
+      }
+      sessionStorage.removeItem('subscription_intent');
+    }
+  } catch (error) {
+    console.error("Erro ao processar intenção de assinatura:", error);
+    sessionStorage.removeItem('subscription_intent');
+  }
+}
+
+// ========================================
+// PAGE INITIALIZATION
+// ========================================
+
+// Bind billing page if on billing route
+if (window.location.pathname.includes("/billing")) {
+  document.addEventListener("DOMContentLoaded", bindBillingPage);
+}
+
+// Cache bust: 1763061975
+// Cache bust: 1763065043 - Deletar e Desconectar chips
+// Cache bust: 1763065236 - Fix deletar chips + aviso aquecimento
+// Cache bust: 1763075987 - Billing & Payments UI
+// Cache bust: 1763076543 - Fix home page redirect
+// Cache bust: 1763077234 - Auto subscription after register
+// Cache bust: 1763077890 - Subscription only after payment confirmed
+// Cache bust: 1763078456 - Better registration error messages
+// Cache bust: 1763082962 - Mercado Pago Sandbox working 100%
+// Cache bust: 1763083452 - Fix credit purchase redirect

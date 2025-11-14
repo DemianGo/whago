@@ -1,0 +1,91 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Planos - WHAGO Admin{% endblock %}
+{% block page_title %}Gerenciar Planos{% endblock %}
+{% block data_page %}admin-plans{% endblock %}
+
+{% block content %}
+<div class="admin-card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+        <h3 style="margin: 0;">Planos de Assinatura</h3>
+        <button class="btn btn-primary" onclick="loadPlans()">
+            <i class="fas fa-sync"></i> Atualizar
+        </button>
+    </div>
+
+    <div id="plansContainer">
+        <div class="loading">
+            <i class="fas fa-spinner fa-spin"></i> Carregando...
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    loadPlans();
+});
+
+async function loadPlans() {
+    const container = document.getElementById('plansContainer');
+    container.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>';
+    
+    try {
+        const response = await adminFetch('/admin/plans');
+        if (!response?.ok) throw new Error();
+        
+        const plans = await response.json();
+        
+        let html = '<table class="admin-table"><thead><tr>';
+        html += '<th>Nome</th><th>Slug</th><th>Preço</th><th>Chips</th><th>Mensagens/Mês</th><th>Status</th><th>Ações</th>';
+        html += '</tr></thead><tbody>';
+        
+        plans.forEach(plan => {
+            const statusBadge = plan.is_active 
+                ? '<span class="badge badge-success">Ativo</span>'
+                : '<span class="badge badge-danger">Inativo</span>';
+            
+            html += `<tr>
+                <td><strong>${plan.name}</strong></td>
+                <td><code>${plan.slug}</code></td>
+                <td>R$ ${parseFloat(plan.price).toFixed(2)}</td>
+                <td>${plan.max_chips}</td>
+                <td>${plan.monthly_messages.toLocaleString('pt-BR')}</td>
+                <td>${statusBadge}</td>
+                <td>
+                    <button class="btn btn-secondary" onclick="viewPlan(${plan.id})" style="padding: 0.25rem 0.5rem; font-size: 0.875rem;">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                </td>
+            </tr>`;
+        });
+        
+        html += '</tbody></table>';
+        container.innerHTML = html;
+        
+    } catch (error) {
+        console.error('Erro:', error);
+        container.innerHTML = '<p style="text-align: center; color: #f56565;">Erro ao carregar planos.</p>';
+    }
+}
+
+async function viewPlan(planId) {
+    try {
+        const response = await adminFetch('/admin/plans');
+        if (!response?.ok) throw new Error();
+        
+        const plans = await response.json();
+        const plan = plans.find(p => p.id === planId);
+        
+        if (!plan) throw new Error('Plano não encontrado');
+        
+        const features = JSON.stringify(plan.features, null, 2);
+        alert(`📦 ${plan.name}\n\nPreço: R$ ${parseFloat(plan.price).toFixed(2)}/mês\nChips: ${plan.max_chips}\nMensagens: ${plan.monthly_messages}/mês\n\nFeatures:\n${features}`);
+    } catch (error) {
+        showAlert('Erro ao carregar detalhes', 'error');
+    }
+}
+</script>
+{% endblock %}
+

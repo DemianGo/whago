@@ -54,10 +54,10 @@
       <h2 class="card__title">Webhooks (Enterprise)</h2>
       <p class="card__subtitle">Receba eventos em tempo real diretamente na sua infraestrutura.</p>
     </div>
-    <div id="webhook-disabled" class="rounded-lg border border-dashed border-red-200 bg-red-50 p-4 text-sm text-red-600 hidden">
+    <div id="webhook-disabled" class="rounded-lg border border-dashed border-red-200 bg-red-50 p-4 text-sm text-red-600 hidden" role="alert">
       Recurso disponível apenas para o plano Enterprise. Faça upgrade para habilitar webhooks.
     </div>
-    <form id="webhook-form" class="space-y-4 hidden">
+    <form id="webhook-form" class="space-y-4 hidden" aria-labelledby="webhook-title">
       <div class="space-y-2">
         <label for="webhook-url" class="text-sm font-medium text-slate-600">URL do webhook</label>
         <input id="webhook-url" name="url" type="url" class="input" placeholder="https://sua-api.com/webhooks/whago" required />
@@ -81,12 +81,70 @@
         <button type="button" id="webhook-test" class="btn-secondary">Enviar evento de teste</button>
         <button type="button" id="webhook-delete" class="btn-secondary text-red-600 hidden">Remover webhook</button>
       </div>
-      <p id="webhook-feedback" class="text-sm text-slate-500"></p>
+      <p id="webhook-feedback" class="text-sm text-slate-500" aria-live="polite" role="status"></p>
     </form>
     <section id="webhook-logs" class="mt-4 hidden">
       <h3 class="text-sm font-semibold text-slate-600">Últimos envios</h3>
       <ul id="webhook-logs-list" class="mt-2 space-y-2 text-sm text-slate-600"></ul>
     </section>
   </article>
+
+  <article class="card" id="api-keys-card">
+    <div class="card__header">
+      <h2 class="card__title" id="api-keys-title">API Keys (Enterprise)</h2>
+      <p class="card__subtitle">Gere credenciais para integrar sistemas externos com autenticação e rate limiting.</p>
+    </div>
+    <div id="api-key-upgrade" class="rounded-lg border border-dashed border-red-200 bg-red-50 p-4 text-sm text-red-600 hidden" role="alert">
+      Recurso disponível apenas para o plano Enterprise. Faça upgrade para habilitar a API externa.
+    </div>
+    <section id="api-key-manager" class="space-y-4 hidden" aria-labelledby="api-keys-title">
+      <p class="text-sm text-slate-600">Compartilhe as chaves somente com sistemas confiáveis. Você pode revogá-las a qualquer momento.</p>
+      <form id="api-key-form" class="flex flex-wrap items-end gap-3" aria-label="Gerar nova API Key">
+        <div class="flex-1 min-w-[220px]">
+          <label for="api-key-name" class="text-sm font-medium text-slate-600">Identificação</label>
+          <input id="api-key-name" name="name" type="text" class="input" placeholder="Integração CRM" required />
+        </div>
+        <button type="submit" class="btn-primary" aria-haspopup="dialog">Gerar nova chave</button>
+      </form>
+      <p id="api-key-feedback" class="text-sm text-slate-500" aria-live="polite" role="status"></p>
+
+      <div class="overflow-x-auto">
+        <table class="table-auto w-full text-sm" aria-describedby="api-keys-title">
+          <thead>
+            <tr class="text-left text-slate-500">
+              <th class="py-2">Nome</th>
+              <th class="py-2">Prefixo</th>
+              <th class="py-2">Criada em</th>
+              <th class="py-2">Último uso</th>
+              <th class="py-2">Status</th>
+              <th class="py-2 text-right">Ações</th>
+            </tr>
+          </thead>
+          <tbody id="api-key-list" class="divide-y divide-slate-200">
+            <tr>
+              <td class="py-3 text-center text-slate-500" colspan="6">Nenhuma chave cadastrada.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </article>
 </section>
+
+<div id="api-key-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="api-key-modal-title">
+  <div class="modal__content max-w-lg">
+    <div class="modal__header">
+      <h3 class="modal__title" id="api-key-modal-title">Nova API Key gerada</h3>
+      <button type="button" class="modal__close" id="api-key-modal-close" aria-label="Fechar">×</button>
+    </div>
+    <div class="modal__body space-y-3">
+      <p class="text-sm text-slate-600">Copie e guarde esta chave com segurança. Ela não será exibida novamente.</p>
+      <div class="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs" id="api-key-modal-value" data-key-value="">
+        <code class="flex-1 break-all">--</code>
+        <button type="button" class="btn-secondary" id="api-key-copy" aria-label="Copiar chave">Copiar</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="api-key-modal-backdrop" class="modal__backdrop hidden" aria-hidden="true"></div>
 {% endblock %}

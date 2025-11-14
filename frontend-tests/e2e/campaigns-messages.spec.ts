@@ -7,7 +7,7 @@ test.describe("Campanhas e mensagens", () => {
     const user = await createTestUser(request);
     try {
       await insertCampaignWithMessage({ userId: user.userId });
-      await loginUI(page, user);
+      await loginUI(page, user, { request });
 
       await page.getByRole("link", { name: "Campanhas" }).click();
       await expect(page).toHaveURL(/\/campaigns$/);

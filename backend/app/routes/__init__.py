@@ -14,6 +14,7 @@ from . import (
     audit,
     messages,
     webhooks,
+    api_keys,
 )
 
 __all__ = (
@@ -30,5 +31,6 @@ __all__ = (
     "audit",
     "messages",
     "webhooks",
+    "api_keys",
 )
 

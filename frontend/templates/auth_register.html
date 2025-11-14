@@ -120,15 +120,18 @@
             <label
               for="reg-document"
               class="text-sm font-medium text-slate-200"
-              >CPF/CNPJ</label
+              >CPF/CNPJ <span class="text-xs text-slate-400">(opcional)</span></label
             >
             <input
               id="reg-document"
               name="document"
               type="text"
               class="input"
-              placeholder="00000000000"
+              placeholder="000.000.000-00 ou 00.000.000/0000-00"
             />
+            <p class="text-xs text-slate-400">
+              Deixe em branco se não quiser informar agora. Se preencher, deve ser válido.
+            </p>
           </div>
 
           <div class="space-y-2">
@@ -173,5 +176,43 @@
         </div>
       </div>
     </main>
+    
+    <script>
+    // Capturar parâmetros da URL para fluxo de assinatura
+    const urlParams = new URLSearchParams(window.location.search);
+    const planIdFromUrl = urlParams.get('plan');
+    const paymentMethodFromUrl = urlParams.get('payment');
+    
+    // Se veio da home com um plano selecionado, pré-selecionar o plano
+    if (planIdFromUrl) {
+        // Mapear ID do plano para slug
+        const planMap = {
+            '1': 'free',
+            '2': 'business',
+            '3': 'enterprise'
+        };
+        const planSlug = planMap[planIdFromUrl];
+        if (planSlug) {
+            const planSelect = document.getElementById('reg-plan');
+            if (planSelect) {
+                planSelect.value = planSlug;
+                
+                // Adicionar informação visual de que veio de um plano específico
+                const planLabel = planSelect.previousElementSibling;
+                if (planLabel) {
+                    planLabel.innerHTML = 'Plano desejado <span class="text-green-400">(selecionado na home)</span>';
+                }
+            }
+        }
+    }
+    
+    // Armazenar informações de pagamento para uso após registro
+    if (planIdFromUrl && paymentMethodFromUrl) {
+        sessionStorage.setItem('pending_subscription', JSON.stringify({
+            plan_id: planIdFromUrl,
+            payment_method: paymentMethodFromUrl
+        }));
+    }
+    </script>
   </body>
 </html>

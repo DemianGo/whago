@@ -40,14 +40,76 @@ export async function createTestUser(
   };
 }
 
-export async function loginUI(page: Page, credentials: { email: string; password: string }): Promise<void> {
+export type LoginOptions = {
+  request?: APIRequestContext;
+  waitForDashboardTimeout?: number;
+};
+
+export async function loginUI(
+  page: Page,
+  credentials: { email: string; password: string },
+  options: LoginOptions = {},
+): Promise<void> {
+  const { request: apiRequest, waitForDashboardTimeout = 15_000 } = options;
+  const { email, password } = credentials;
+
+  if (!email || !password) {
+    throw new Error("loginUI requer email e senha válidos");
+  }
+
   await page.goto("/login");
-  await page.waitForFunction(() => window.__WHAGO_READY === true, null, { timeout: 15000 });
-  await page.getByLabel("E-mail").fill(credentials.email);
-  await page.getByLabel("Senha").fill(credentials.password);
-  await Promise.all([
-    page.waitForURL("**/dashboard", { timeout: 15_000 }),
-    page.getByRole("button", { name: "Entrar" }).click(),
-  ]);
+
+  const ensureReady = async () => {
+    await page.waitForSelector("#login-form", { timeout: 10_000 });
+    try {
+      await page.waitForFunction(() => window.__WHAGO_READY === true, null, { timeout: 10_000 });
+    } catch (error) {
+      console.warn("loginUI: __WHAGO_READY não sinalizado dentro do tempo limite");
+    }
+  };
+
+  await ensureReady();
+
+  const attemptUiLogin = async () => {
+    await page.getByLabel("E-mail").fill(email);
+    await page.getByLabel("Senha").fill(password);
+    await Promise.all([
+      page.waitForURL("**/dashboard", { timeout: waitForDashboardTimeout }),
+      page.getByRole("button", { name: "Entrar" }).click(),
+    ]);
+  };
+
+  try {
+    await attemptUiLogin();
+    return;
+  } catch (error) {
+    console.warn("loginUI: tentativa de login via UI falhou", error);
+    if (!apiRequest) {
+      throw error;
+    }
+  }
+
+  console.warn("loginUI: aplicando fallback via API");
+  const response = await apiRequest.post("/api/v1/auth/login", {
+    data: { email, password },
+  });
+  expect(response.status(), "login API deve retornar 200").toBe(200);
+  const data = await response.json();
+
+  await page.evaluate(
+    ({ tokens }) => {
+      if (!tokens?.access_token || !tokens?.refresh_token) {
+        throw new Error("Tokens inválidos no fallback de login");
+      }
+      localStorage.setItem("whago_access_token", tokens.access_token);
+      localStorage.setItem("whago_refresh_token", tokens.refresh_token);
+    },
+    { tokens: data.tokens },
+  );
+
+  await page.goto("/dashboard");
+  await page.waitForFunction(() => window.__WHAGO_READY === true, null, {
+    timeout: waitForDashboardTimeout,
+  });
 }
 

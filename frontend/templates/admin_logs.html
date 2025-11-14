@@ -1,0 +1,85 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Logs - WHAGO Admin{% endblock %}
+{% block page_title %}Logs de Auditoria{% endblock %}
+{% block data_page %}admin-logs{% endblock %}
+
+{% block content %}
+<div class="admin-card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+        <h3 style="margin: 0;">Registro de Ações Administrativas</h3>
+        <button class="btn btn-primary" onclick="loadLogs()">
+            <i class="fas fa-sync"></i> Atualizar
+        </button>
+    </div>
+
+    <div id="logsContainer">
+        <div class="loading">
+            <i class="fas fa-spinner fa-spin"></i> Carregando...
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    loadLogs();
+});
+
+async function loadLogs() {
+    const container = document.getElementById('logsContainer');
+    container.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>';
+    
+    try {
+        const response = await adminFetch('/admin/logs?limit=100');
+        if (!response?.ok) throw new Error();
+        
+        const logs = await response.json();
+        
+        if (logs.length === 0) {
+            container.innerHTML = '<p style="text-align: center; color: #718096;">Nenhum log encontrado.</p>';
+            return;
+        }
+        
+        let html = '<table class="admin-table"><thead><tr>';
+        html += '<th>Data/Hora</th><th>Admin</th><th>Ação</th><th>Entidade</th><th>IP</th>';
+        html += '</tr></thead><tbody>';
+        
+        logs.forEach(log => {
+            const actionIcons = {
+                'user_created': '👤➕',
+                'user_updated': '👤✏️',
+                'user_deleted': '👤🗑️',
+                'admin_created': '🔐➕',
+                'admin_updated': '🔐✏️',
+                'plan_updated': '📦✏️',
+                'coupon_created': '🎟️➕',
+                'gateway_updated': '💳✏️'
+            };
+            
+            const icon = actionIcons[log.action] || '📝';
+            
+            html += `<tr>
+                <td style="white-space: nowrap;">${new Date(log.created_at).toLocaleString('pt-BR')}</td>
+                <td><strong>${log.admin_name}</strong></td>
+                <td>${icon} ${log.action}</td>
+                <td>
+                    ${log.entity_type || '-'} 
+                    ${log.entity_id ? `<br><small style="color: #718096;"><code>${log.entity_id.substring(0, 8)}...</code></small>` : ''}
+                </td>
+                <td><code>${log.ip_address || '-'}</code></td>
+            </tr>`;
+        });
+        
+        html += '</tbody></table>';
+        container.innerHTML = html;
+        
+    } catch (error) {
+        console.error('Erro:', error);
+        container.innerHTML = '<p style="text-align: center; color: #f56565;">Erro ao carregar logs.</p>';
+    }
+}
+</script>
+{% endblock %}
+

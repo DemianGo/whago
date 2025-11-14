@@ -9,20 +9,28 @@ import io
 import json
 import logging
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Iterable
-from uuid import UUID
+from uuid import UUID, uuid4
+from contextlib import suppress
 
 from fastapi import HTTPException, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from tasks.campaign_tasks import resume_campaign_dispatch, start_campaign_dispatch
+from tasks.campaign_tasks import (
+    resume_campaign_dispatch,
+    start_campaign_dispatch,
+    _start_campaign_dispatch,
+)
 from ..config import settings
 from ..core.redis import get_redis_client
 from ..models.campaign import (
     Campaign,
     CampaignContact,
+    CampaignMedia,
     CampaignMessage,
     CampaignStatus,
     CampaignType,
@@ -38,6 +46,7 @@ from ..schemas.campaign import (
     CampaignActionResponse,
     CampaignCreate,
     CampaignDetail,
+    CampaignMediaResponse,
     CampaignMessageResponse,
     CampaignSettings,
     CampaignSummary,
@@ -47,10 +56,35 @@ from ..schemas.campaign import (
 
 logger = logging.getLogger("whago.campaigns")
 
+MEDIA_SUBDIR = "campaigns"
+
 
 class CampaignService:
     def __init__(self, session: AsyncSession):
         self.session = session
+
+    def _media_directory(self, campaign_id: UUID) -> Path:
+        base_dir = Path(settings.media_root)
+        campaign_dir = base_dir / MEDIA_SUBDIR / str(campaign_id)
+        campaign_dir.mkdir(parents=True, exist_ok=True)
+        return campaign_dir
+
+    def _media_to_schema(self, campaign_id: UUID, media: CampaignMedia) -> CampaignMediaResponse:
+        return CampaignMediaResponse(
+            id=media.id,
+            original_name=media.original_name,
+            stored_name=media.stored_name,
+            content_type=media.content_type,
+            size_bytes=media.size_bytes,
+            created_at=media.created_at,
+            url=f"/api/v1/campaigns/{campaign_id}/media/{media.id}",
+        )
+
+    async def _build_campaign_detail(self, campaign: Campaign) -> CampaignDetail:
+        await self.session.refresh(campaign, attribute_names=["media"])
+        detail = CampaignDetail.model_validate(campaign)
+        detail.media = [self._media_to_schema(campaign.id, media) for media in campaign.media]
+        return detail
 
     async def list_campaigns(self, user: User) -> list[CampaignSummary]:
         result = await self.session.execute(
@@ -63,7 +97,7 @@ class CampaignService:
 
     async def get_campaign(self, user: User, campaign_id: UUID) -> CampaignDetail:
         campaign = await self._get_user_campaign(user, campaign_id)
-        return CampaignDetail.model_validate(campaign)
+        return await self._build_campaign_detail(campaign)
 
     async def create_campaign(
         self,
@@ -117,7 +151,7 @@ class CampaignService:
         )
         await self.session.commit()
         await self.session.refresh(campaign)
-        return CampaignDetail.model_validate(campaign)
+        return await self._build_campaign_detail(campaign)
 
     async def update_campaign(
         self,
@@ -157,7 +191,7 @@ class CampaignService:
 
         await self.session.commit()
         await self.session.refresh(campaign)
-        return CampaignDetail.model_validate(campaign)
+        return await self._build_campaign_detail(campaign)
 
     async def delete_campaign(self, user: User, campaign_id: UUID) -> None:
         campaign = await self._get_user_campaign(user, campaign_id)
@@ -199,6 +233,7 @@ class CampaignService:
         duplicated = 0
         preview: list[dict] = []
         seen_numbers: set[str] = set()
+        detected_variables: set[str] = set()
 
         for row in reader:
             total += 1
@@ -234,6 +269,8 @@ class CampaignService:
                 if key not in {"numero", "number", "nome", "name", "empresa", "company"}
             }
             variables = {k: v for k, v in variables.items() if v}
+            if variables:
+                detected_variables.update(variables.keys())
 
             contact = CampaignContact(
                 campaign_id=campaign.id,
@@ -269,6 +306,7 @@ class CampaignService:
             invalid_contacts=invalid,
             duplicated=duplicated,
             preview=preview,
+            variables=sorted(detected_variables),
         )
 
     async def start_campaign(self, user: User, campaign_id: UUID) -> CampaignActionResponse:
@@ -396,6 +434,17 @@ class CampaignService:
         )
         return CampaignActionResponse(status=campaign.status, message="Campanha iniciada.")
 
+    async def dispatch_sync(self, user: User, campaign_id: UUID) -> CampaignActionResponse:
+        if settings.environment.lower() == "production":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Operação permitida apenas em ambientes não produtivos.",
+            )
+        campaign = await self._get_user_campaign(user, campaign_id)
+        await _start_campaign_dispatch(campaign.id)
+        await self.session.refresh(campaign)
+        return CampaignActionResponse(status=campaign.status, message="Dispatch síncrono executado.")
+
     async def pause_campaign(self, user: User, campaign_id: UUID) -> CampaignActionResponse:
         db_user = await self._get_user_with_plan(user)
         campaign = await self._get_user_campaign(user, campaign_id)
@@ -494,14 +543,126 @@ class CampaignService:
     ) -> list[CampaignMessageResponse]:
         await self._get_user_campaign(user, campaign_id)
         result = await self.session.execute(
-            select(CampaignMessage)
+            select(CampaignMessage, CampaignContact.phone_number, Chip.alias)
+            .join(CampaignContact, CampaignMessage.contact_id == CampaignContact.id)
+            .join(Chip, CampaignMessage.chip_id == Chip.id, isouter=True)
             .where(CampaignMessage.campaign_id == campaign_id)
             .order_by(CampaignMessage.created_at.desc())
             .limit(limit)
             .offset(offset)
         )
-        messages = result.scalars().all()
-        return [CampaignMessageResponse.model_validate(msg) for msg in messages]
+        rows = result.all()
+        responses: list[CampaignMessageResponse] = []
+        for message, phone_number, chip_alias in rows:
+            payload = {
+                "id": message.id,
+                "contact_id": message.contact_id,
+                "phone_number": phone_number,
+                "status": message.status,
+                "content": message.content,
+                "failure_reason": message.failure_reason,
+                "sent_at": message.sent_at,
+                "delivered_at": message.delivered_at,
+                "read_at": message.read_at,
+                "created_at": message.created_at,
+                "chip_id": message.chip_id,
+                "chip_alias": chip_alias,
+            }
+            responses.append(CampaignMessageResponse.model_validate(payload))
+        return responses
+
+    async def list_media(self, user: User, campaign_id: UUID) -> list[CampaignMediaResponse]:
+        campaign = await self._get_user_campaign(user, campaign_id)
+        await self.session.refresh(campaign, attribute_names=["media"])
+        return [self._media_to_schema(campaign.id, media) for media in campaign.media]
+
+    async def upload_media(
+        self,
+        user: User,
+        campaign_id: UUID,
+        file: UploadFile,
+    ) -> CampaignMediaResponse:
+        if file is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Nenhum arquivo foi enviado.",
+            )
+        filename = file.filename or "arquivo"
+        payload = await file.read()
+        size = len(payload)
+        if size == 0:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Arquivo enviado está vazio.",
+            )
+        max_bytes = settings.media_max_file_size_mb * 1024 * 1024
+        if size > max_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"Arquivo excede o limite de {settings.media_max_file_size_mb}MB.",
+            )
+        allowed_types = set(settings.media_allowed_content_types or [])
+        content_type = file.content_type or "application/octet-stream"
+        if allowed_types and content_type not in allowed_types:
+            allowed_readable = ", ".join(sorted(allowed_types))
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail=f"Tipo de arquivo não permitido. Formatos aceitos: {allowed_readable}.",
+            )
+
+        campaign = await self._get_user_campaign(user, campaign_id)
+        directory = self._media_directory(campaign.id)
+        extension = Path(filename).suffix
+        stored_name = f"{uuid4().hex}{extension}" if extension else uuid4().hex
+        file_path = directory / stored_name
+        file_path.write_bytes(payload)
+
+        media = CampaignMedia(
+            campaign_id=campaign.id,
+            original_name=filename,
+            stored_name=stored_name,
+            content_type=content_type,
+            size_bytes=size,
+        )
+        self.session.add(media)
+        await self.session.commit()
+        await self.session.refresh(media)
+        return self._media_to_schema(campaign.id, media)
+
+    async def download_media(
+        self,
+        user: User,
+        campaign_id: UUID,
+        media_id: UUID,
+    ) -> FileResponse:
+        await self._get_user_campaign(user, campaign_id)
+        media = await self._get_media_record(campaign_id, media_id)
+        file_path = self._media_directory(campaign_id) / media.stored_name
+        if not file_path.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Arquivo de mídia não encontrado no armazenamento.",
+            )
+        return FileResponse(
+            path=file_path,
+            media_type=media.content_type,
+            filename=media.original_name,
+        )
+
+    async def delete_media(
+        self,
+        user: User,
+        campaign_id: UUID,
+        media_id: UUID,
+    ) -> None:
+        await self._get_user_campaign(user, campaign_id)
+        media = await self._get_media_record(campaign_id, media_id)
+        file_path = self._media_directory(campaign_id) / media.stored_name
+        await self.session.delete(media)
+        await self.session.commit()
+        if file_path.exists():
+            with suppress(OSError):
+                file_path.unlink()
 
     async def _get_user_campaign(self, user: User, campaign_id: UUID) -> Campaign:
         campaign = await self.session.get(Campaign, campaign_id)
@@ -714,6 +875,21 @@ class CampaignService:
         if len(digits) == 12 and digits.startswith("55"):
             return digits
         return None
+
+    async def _get_media_record(self, campaign_id: UUID, media_id: UUID) -> CampaignMedia:
+        result = await self.session.execute(
+            select(CampaignMedia).where(
+                CampaignMedia.id == media_id,
+                CampaignMedia.campaign_id == campaign_id,
+            )
+        )
+        media = result.scalar_one_or_none()
+        if media is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Arquivo de mídia não encontrado.",
+            )
+        return media
 
 
 __all__ = ("CampaignService",)

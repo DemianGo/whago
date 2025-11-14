@@ -1,17 +1,22 @@
 {% extends "base.html" %}
 {% block title %}Chips | WHAGO{% endblock %}
 {% block content %}
-<section class="flex items-center justify-between">
+<section class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
   <div>
     <h2 class="page-title">Chips conectados</h2>
     <p class="page-subtitle">
       Gerencie sessões Baileys, verifique status em tempo real e acompanhe eventos críticos.
     </p>
   </div>
-  <button id="refresh-chips" class="btn-secondary">Atualizar lista</button>
+  <div class="flex items-center gap-3">
+    <button data-test="add-chip" class="btn-primary">Adicionar chip</button>
+    <button id="refresh-chips" class="btn-secondary">Atualizar lista</button>
+  </div>
 </section>
 
-<section class="mt-8 card">
+<p id="chip-feedback" class="mt-4 text-sm text-slate-500"></p>
+
+<section class="mt-4 card">
   <div class="overflow-x-auto">
     <table class="table-auto w-full text-sm" id="chip-table">
       <thead>
@@ -21,6 +26,7 @@
           <th class="py-2">Pontuação</th>
           <th class="py-2">Criado em</th>
           <th class="py-2">Última atividade</th>
+          <th class="py-2 text-right">Ações</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-slate-200"></tbody>
@@ -29,4 +35,47 @@
 </section>
 
 <section class="mt-8 grid gap-6 lg:grid-cols-2" id="chip-events"></section>
+
+<div id="chip-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="chip-modal-title">
+  <div class="modal__content">
+    <div class="modal__header">
+      <h3 id="chip-modal-title" class="modal__title">Adicionar novo chip</h3>
+      <button type="button" id="chip-modal-close" class="modal__close" aria-label="Fechar">✕</button>
+    </div>
+    <form id="chip-form" class="modal__body space-y-4">
+      <div class="space-y-2">
+        <label for="chip-alias" class="card__label">Apelido do chip</label>
+        <input id="chip-alias" name="alias" class="input" placeholder="Suporte WhatsApp 01" required minlength="3" />
+        <p class="text-xs text-slate-500">Escolha um apelido único para facilitar a identificação nas campanhas.</p>
+      </div>
+      <div class="modal__actions">
+        <button type="button" class="btn-secondary" id="chip-modal-cancel">Cancelar</button>
+        <button type="submit" class="btn-primary" data-test="submit-chip">Criar chip</button>
+      </div>
+    </form>
+    
+    <!-- QR Code Section (shown after chip creation) -->
+    <div id="chip-qr-section" class="modal__body space-y-4 hidden">
+      <div class="text-center">
+        <h4 class="text-lg font-semibold text-slate-700 mb-2">Escaneie o QR Code</h4>
+        <p class="text-sm text-slate-600 mb-4">Abra o WhatsApp no seu celular e vá em <strong>Aparelhos conectados</strong> → <strong>Conectar um aparelho</strong></p>
+      </div>
+      
+      <div class="flex justify-center">
+        <div id="chip-qr-loading" class="text-center">
+          <div class="inline-block h-12 w-12 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
+          <p class="mt-2 text-sm text-slate-600">Gerando QR Code...</p>
+        </div>
+        <img id="chip-qr-image" src="" alt="QR Code" class="hidden w-64 h-64 border-2 border-slate-200 rounded-lg" />
+      </div>
+      
+      <div id="chip-qr-status" class="text-center text-sm text-slate-600"></div>
+      
+      <div class="flex justify-center gap-3">
+        <button type="button" id="chip-qr-close" class="btn-primary">Fechar</button>
+      </div>
+    </div>
+  </div>
+</div>
+<div id="chip-modal-backdrop" class="modal__backdrop hidden" aria-hidden="true"></div>
 {% endblock %}

@@ -1,0 +1,427 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Usuários - WHAGO Admin{% endblock %}
+{% block page_title %}Gerenciar Usuários{% endblock %}
+{% block data_page %}admin-users{% endblock %}
+
+{% block content %}
+<div class="admin-card" style="margin-bottom: 1.5rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+        <div style="display: flex; gap: 1rem; flex: 1;">
+            <input 
+                type="text" 
+                id="searchUsers" 
+                placeholder="Buscar por nome ou email..."
+                class="form-control"
+                style="max-width: 400px;"
+            >
+            <select id="filterPlan" class="form-control" style="max-width: 200px;">
+                <option value="">Todos os planos</option>
+            </select>
+            <select id="filterStatus" class="form-control" style="max-width: 200px;">
+                <option value="">Todos os status</option>
+                <option value="active">Ativos</option>
+                <option value="suspended">Suspensos</option>
+                <option value="inactive">Inativos</option>
+            </select>
+        </div>
+        <div style="display: flex; gap: 0.5rem;">
+            <button class="btn btn-success" onclick="openCreateUserModal()">
+                <i class="fas fa-plus"></i> Novo Usuário
+            </button>
+            <button class="btn btn-primary" onclick="loadUsers()">
+                <i class="fas fa-sync"></i> Atualizar
+            </button>
+        </div>
+    </div>
+
+    <div id="usersTableContainer">
+        <div class="loading">
+            <i class="fas fa-spinner fa-spin"></i> Carregando...
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Criação -->
+<div id="createUserModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title">Novo Usuário</h3>
+            <button class="modal-close" onclick="closeCreateUserModal()">&times;</button>
+        </div>
+        <form id="createUserForm">
+            <div class="form-group">
+                <label class="form-label">Email *</label>
+                <input type="email" id="createUserEmail" class="form-control" required>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Senha *</label>
+                <input type="password" id="createUserPassword" class="form-control" required minlength="6">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Nome *</label>
+                <input type="text" id="createUserName" class="form-control" required>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Telefone</label>
+                <input type="text" id="createUserPhone" class="form-control" placeholder="+5511999999999">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Empresa</label>
+                <input type="text" id="createUserCompany" class="form-control">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Plano *</label>
+                <select id="createUserPlan" class="form-control" required></select>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Créditos</label>
+                <input type="number" id="createUserCredits" class="form-control" min="0" value="100">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">
+                    <input type="checkbox" id="createUserActive" checked> Ativo
+                </label>
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeCreateUserModal()">Cancelar</button>
+                <button type="submit" class="btn btn-success">Criar Usuário</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal de Edição -->
+<div id="editUserModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title">Editar Usuário</h3>
+            <button class="modal-close" onclick="closeEditUserModal()">&times;</button>
+        </div>
+        <form id="editUserForm">
+            <input type="hidden" id="editUserId">
+            
+            <div class="form-group">
+                <label class="form-label">Nome</label>
+                <input type="text" id="editUserName" class="form-control" required>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Telefone</label>
+                <input type="text" id="editUserPhone" class="form-control">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Empresa</label>
+                <input type="text" id="editUserCompany" class="form-control">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Plano</label>
+                <select id="editUserPlan" class="form-control" required></select>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Créditos</label>
+                <input type="number" id="editUserCredits" class="form-control" min="0">
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">
+                    <input type="checkbox" id="editUserActive"> Ativo
+                </label>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">
+                    <input type="checkbox" id="editUserSuspended"> Suspenso
+                </label>
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeEditUserModal()">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Salvar</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let allPlans = [];
+
+document.addEventListener('DOMContentLoaded', () => {
+    loadPlans();
+    loadUsers();
+    
+    document.getElementById('searchUsers').addEventListener('input', debounce(loadUsers, 500));
+    document.getElementById('filterPlan').addEventListener('change', loadUsers);
+    document.getElementById('filterStatus').addEventListener('change', loadUsers);
+    document.getElementById('createUserForm').addEventListener('submit', handleCreateUserSubmit);
+    document.getElementById('editUserForm').addEventListener('submit', handleEditUserSubmit);
+});
+
+async function loadPlans() {
+    try {
+        const response = await adminFetch('/admin/plans');
+        if (!response?.ok) throw new Error();
+        
+        allPlans = await response.json();
+        
+        // Populate filter
+        const filterSelect = document.getElementById('filterPlan');
+        allPlans.forEach(plan => {
+            filterSelect.innerHTML += `<option value="${plan.id}">${plan.name}</option>`;
+        });
+        
+    } catch (error) {
+        console.error('Erro ao carregar planos:', error);
+    }
+}
+
+function openCreateUserModal() {
+    // Populate plans in modal
+    const planSelect = document.getElementById('createUserPlan');
+    planSelect.innerHTML = '';
+    allPlans.forEach(plan => {
+        planSelect.innerHTML += `<option value="${plan.id}">${plan.name}</option>`;
+    });
+    
+    // Reset form
+    document.getElementById('createUserForm').reset();
+    document.getElementById('createUserActive').checked = true;
+    document.getElementById('createUserCredits').value = 100;
+    
+    document.getElementById('createUserModal').classList.add('active');
+}
+
+function closeCreateUserModal() {
+    document.getElementById('createUserModal').classList.remove('active');
+}
+
+async function handleCreateUserSubmit(e) {
+    e.preventDefault();
+    
+    const data = {
+        email: document.getElementById('createUserEmail').value,
+        password: document.getElementById('createUserPassword').value,
+        name: document.getElementById('createUserName').value,
+        phone: document.getElementById('createUserPhone').value || null,
+        company_name: document.getElementById('createUserCompany').value || null,
+        plan_id: parseInt(document.getElementById('createUserPlan').value),
+        credits: parseInt(document.getElementById('createUserCredits').value),
+        is_active: document.getElementById('createUserActive').checked,
+        is_suspended: false
+    };
+    
+    try {
+        const response = await adminFetch('/admin/users', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+        
+        if (!response?.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Erro ao criar usuário');
+        }
+        
+        showAlert('Usuário criado com sucesso!', 'success');
+        closeCreateUserModal();
+        loadUsers();
+    } catch (error) {
+        console.error('Erro:', error);
+        showAlert(error.message || 'Erro ao criar usuário', 'error');
+    }
+}
+
+async function loadUsers() {
+    const container = document.getElementById('usersTableContainer');
+    container.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>';
+    
+    try {
+        const search = document.getElementById('searchUsers').value;
+        const planId = document.getElementById('filterPlan').value;
+        const status = document.getElementById('filterStatus').value;
+        
+        const params = new URLSearchParams();
+        if (search) params.append('search', search);
+        if (planId) params.append('plan_id', planId);
+        if (status) params.append('status', status);
+        
+        const response = await adminFetch(`/admin/users?${params}`);
+        if (!response?.ok) throw new Error();
+        
+        const users = await response.json();
+        
+        if (users.length === 0) {
+            container.innerHTML = '<p style="text-align: center; color: #718096;">Nenhum usuário encontrado.</p>';
+            return;
+        }
+        
+        let html = '<table class="admin-table"><thead><tr>';
+        html += '<th>Nome</th><th>Email</th><th>Plano</th><th>Créditos</th><th>Status</th><th>Cadastro</th><th>Ações</th>';
+        html += '</tr></thead><tbody>';
+        
+        users.forEach(user => {
+            let statusBadge = user.is_suspended 
+                ? '<span class="badge badge-danger">Suspenso</span>'
+                : user.is_active 
+                    ? '<span class="badge badge-success">Ativo</span>'
+                    : '<span class="badge badge-warning">Inativo</span>';
+            
+            html += `<tr>
+                <td>${user.name}</td>
+                <td>${user.email}</td>
+                <td>${user.plan_name}</td>
+                <td>${user.credits}</td>
+                <td>${statusBadge}</td>
+                <td>${new Date(user.created_at).toLocaleDateString('pt-BR')}</td>
+                <td>
+                    <button class="btn btn-secondary" onclick="viewUser('${user.id}')" style="padding: 0.25rem 0.5rem; font-size: 0.875rem;">
+                        <i class="fas fa-eye"></i>
+                    </button>
+                    <button class="btn btn-primary" onclick="editUser('${user.id}')" style="padding: 0.25rem 0.5rem; font-size: 0.875rem;">
+                        <i class="fas fa-edit"></i>
+                    </button>
+                    <button class="btn btn-success" onclick="impersonateUser('${user.id}')" style="padding: 0.25rem 0.5rem; font-size: 0.875rem;">
+                        <i class="fas fa-user-secret"></i>
+                    </button>
+                </td>
+            </tr>`;
+        });
+        
+        html += '</tbody></table>';
+        container.innerHTML = html;
+        
+    } catch (error) {
+        console.error('Erro ao carregar usuários:', error);
+        container.innerHTML = '<p style="text-align: center; color: #f56565;">Erro ao carregar usuários.</p>';
+    }
+}
+
+async function viewUser(userId) {
+    try {
+        const response = await adminFetch(`/admin/users/${userId}`);
+        if (!response?.ok) throw new Error();
+        
+        const user = await response.json();
+        alert(`Detalhes do Usuário:\n\nNome: ${user.name}\nEmail: ${user.email}\nTelefone: ${user.phone || 'N/A'}\nEmpresa: ${user.company_name || 'N/A'}\nDocumento: ${user.document || 'N/A'}\nPlano: ${user.plan_name}\nCréditos: ${user.credits}\nAssinatura: ${user.subscription_status || 'N/A'}\nÚltimo Login: ${user.last_login_at ? new Date(user.last_login_at).toLocaleString('pt-BR') : 'Nunca'}`);
+    } catch (error) {
+        console.error('Erro:', error);
+        showAlert('Erro ao carregar detalhes do usuário', 'error');
+    }
+}
+
+async function editUser(userId) {
+    try {
+        const response = await adminFetch(`/admin/users/${userId}`);
+        if (!response?.ok) throw new Error();
+        
+        const user = await response.json();
+        
+        // Populate plans in modal
+        const planSelect = document.getElementById('editUserPlan');
+        planSelect.innerHTML = '';
+        allPlans.forEach(plan => {
+            planSelect.innerHTML += `<option value="${plan.id}" ${plan.name === user.plan_name ? 'selected' : ''}>${plan.name}</option>`;
+        });
+        
+        // Fill form
+        document.getElementById('editUserId').value = user.id;
+        document.getElementById('editUserName').value = user.name;
+        document.getElementById('editUserPhone').value = user.phone || '';
+        document.getElementById('editUserCompany').value = user.company_name || '';
+        document.getElementById('editUserCredits').value = user.credits;
+        document.getElementById('editUserActive').checked = user.is_active;
+        document.getElementById('editUserSuspended').checked = user.is_suspended;
+        
+        document.getElementById('editUserModal').classList.add('active');
+    } catch (error) {
+        console.error('Erro:', error);
+        showAlert('Erro ao carregar usuário', 'error');
+    }
+}
+
+function closeEditUserModal() {
+    document.getElementById('editUserModal').classList.remove('active');
+}
+
+async function handleEditUserSubmit(e) {
+    e.preventDefault();
+    
+    const userId = document.getElementById('editUserId').value;
+    const data = {
+        name: document.getElementById('editUserName').value,
+        phone: document.getElementById('editUserPhone').value || null,
+        company_name: document.getElementById('editUserCompany').value || null,
+        plan_id: parseInt(document.getElementById('editUserPlan').value),
+        credits: parseInt(document.getElementById('editUserCredits').value),
+        is_active: document.getElementById('editUserActive').checked,
+        is_suspended: document.getElementById('editUserSuspended').checked
+    };
+    
+    try {
+        const response = await adminFetch(`/admin/users/${userId}`, {
+            method: 'PUT',
+            body: JSON.stringify(data)
+        });
+        
+        if (!response?.ok) throw new Error();
+        
+        showAlert('Usuário atualizado com sucesso', 'success');
+        closeEditUserModal();
+        loadUsers();
+    } catch (error) {
+        console.error('Erro:', error);
+        showAlert('Erro ao atualizar usuário', 'error');
+    }
+}
+
+async function impersonateUser(userId) {
+    if (!confirm('Deseja impersonar este usuário? Você será redirecionado para o sistema como ele.')) {
+        return;
+    }
+    
+    try {
+        const response = await adminFetch(`/admin/users/${userId}/impersonate`, {
+            method: 'POST'
+        });
+        
+        if (!response?.ok) throw new Error();
+        
+        const data = await response.json();
+        
+        // Save tokens and redirect
+        localStorage.setItem('access_token', data.tokens.access_token);
+        localStorage.setItem('refresh_token', data.tokens.refresh_token);
+        
+        window.location.href = '/dashboard';
+    } catch (error) {
+        console.error('Erro:', error);
+        showAlert('Erro ao impersonar usuário', 'error');
+    }
+}
+
+function debounce(func, wait) {
+    let timeout;
+    return function executedFunction(...args) {
+        const later = () => {
+            clearTimeout(timeout);
+            func(...args);
+        };
+        clearTimeout(timeout);
+        timeout = setTimeout(later, wait);
+    };
+}
+</script>
+{% endblock %}
+

@@ -1,0 +1,162 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Dashboard - WHAGO Admin{% endblock %}
+{% block page_title %}Dashboard{% endblock %}
+{% block data_page %}admin-dashboard{% endblock %}
+
+{% block content %}
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-card-header">
+            <span class="stat-card-title">Total de Usuários</span>
+            <div class="stat-card-icon" style="background: #c3dafe; color: #2b6cb0;">
+                <i class="fas fa-users"></i>
+            </div>
+        </div>
+        <div class="stat-card-value" id="totalUsers">-</div>
+        <div class="stat-card-change" id="newUsers7d">-</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-card-header">
+            <span class="stat-card-title">Usuários Ativos</span>
+            <div class="stat-card-icon" style="background: #c6f6d5; color: #22543d;">
+                <i class="fas fa-user-check"></i>
+            </div>
+        </div>
+        <div class="stat-card-value" id="activeUsers">-</div>
+        <div class="stat-card-change" id="activePercent">-</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-card-header">
+            <span class="stat-card-title">MRR (Receita Mensal)</span>
+            <div class="stat-card-icon" style="background: #feebc8; color: #744210;">
+                <i class="fas fa-dollar-sign"></i>
+            </div>
+        </div>
+        <div class="stat-card-value" id="mrr">-</div>
+        <div class="stat-card-change" id="mrrChange">-</div>
+    </div>
+
+    <div class="stat-card">
+        <div class="stat-card-header">
+            <span class="stat-card-title">Mensagens Hoje</span>
+            <div class="stat-card-icon" style="background: #e9d8fd; color: #553c9a;">
+                <i class="fas fa-paper-plane"></i>
+            </div>
+        </div>
+        <div class="stat-card-value" id="messagesToday">-</div>
+        <div class="stat-card-change" id="messagesMonth">-</div>
+    </div>
+</div>
+
+<div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem;">
+    <div class="admin-card">
+        <h3 style="margin-bottom: 1rem; font-size: 1.25rem; font-weight: 600;">Novos Usuários (7 dias)</h3>
+        <canvas id="usersChart" style="max-height: 300px;"></canvas>
+    </div>
+
+    <div class="admin-card">
+        <h3 style="margin-bottom: 1rem; font-size: 1.25rem; font-weight: 600;">Status dos Usuários</h3>
+        <canvas id="statusChart" style="max-height: 300px;"></canvas>
+    </div>
+</div>
+
+<div class="admin-card">
+    <h3 style="margin-bottom: 1rem; font-size: 1.25rem; font-weight: 600;">Atividades Recentes</h3>
+    <div id="recentActivity">
+        <div class="loading">
+            <i class="fas fa-spinner fa-spin"></i> Carregando...
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    loadDashboardStats();
+});
+
+async function loadDashboardStats() {
+    try {
+        const response = await adminFetch('/admin/dashboard/stats');
+        if (!response?.ok) throw new Error('Erro ao carregar estatísticas');
+        
+        const stats = await response.json();
+        
+        // Update stat cards
+        document.getElementById('totalUsers').textContent = stats.total_users || 0;
+        document.getElementById('activeUsers').textContent = stats.active_users || 0;
+        document.getElementById('mrr').textContent = `R$ ${(stats.mrr || 0).toFixed(2)}`;
+        document.getElementById('messagesToday').textContent = stats.messages_today || 0;
+        
+        document.getElementById('newUsers7d').textContent = `+${stats.new_users_7d} nos últimos 7 dias`;
+        
+        const activePercent = stats.total_users > 0 
+            ? ((stats.active_users / stats.total_users) * 100).toFixed(1)
+            : 0;
+        document.getElementById('activePercent').textContent = `${activePercent}% do total`;
+        
+        document.getElementById('messagesMonth').textContent = `${stats.messages_month} neste mês`;
+        
+        // Charts would go here (simplified for now)
+        createUsersChart();
+        createStatusChart(stats);
+        
+    } catch (error) {
+        console.error('Erro ao carregar dashboard:', error);
+        showAlert('Erro ao carregar estatísticas', 'error');
+    }
+}
+
+function createUsersChart() {
+    const ctx = document.getElementById('usersChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: ['Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb', 'Dom'],
+            datasets: [{
+                label: 'Novos Usuários',
+                data: [12, 19, 8, 15, 22, 10, 18],
+                borderColor: '#667eea',
+                backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false }
+            }
+        }
+    });
+}
+
+function createStatusChart(stats) {
+    const ctx = document.getElementById('statusChart').getContext('2d');
+    new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: ['Ativos', 'Suspensos', 'Inativos'],
+            datasets: [{
+                data: [
+                    stats.active_users || 0,
+                    stats.suspended_users || 0,
+                    (stats.total_users - stats.active_users - stats.suspended_users) || 0
+                ],
+                backgroundColor: ['#48bb78', '#f56565', '#718096']
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false
+        }
+    });
+}
+</script>
+{% endblock %}
+

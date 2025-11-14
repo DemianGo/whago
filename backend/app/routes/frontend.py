@@ -18,8 +18,19 @@ router = APIRouter(include_in_schema=False)
 
 
 @router.get("/", response_class=HTMLResponse)
-async def root(_: Request) -> RedirectResponse:
-    return RedirectResponse(url="/dashboard", status_code=302)
+async def root(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        "home.html",
+        {"request": request},
+    )
+
+
+@router.get("/home", response_class=HTMLResponse)
+async def home(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        "home.html",
+        {"request": request},
+    )
 
 
 @router.get("/login", response_class=HTMLResponse)
@@ -107,6 +118,79 @@ async def help_page(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(
         "help.html",
         {"request": request, "page_id": "help"},
+    )
+
+
+# Admin Routes
+@router.get("/admin/login", response_class=HTMLResponse)
+async def admin_login_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        "admin_login.html",
+        {"request": request},
+    )
+
+
+@router.get("/admin/dashboard", response_class=HTMLResponse)
+async def admin_dashboard_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        "admin_dashboard.html",
+        {"request": request},
+    )
+
+
+@router.get("/admin/users", response_class=HTMLResponse)
+async def admin_users_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        "admin_users.html",
+        {"request": request},
+    )
+
+
+@router.get("/admin/plans", response_class=HTMLResponse)
+async def admin_plans_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        "admin_plans.html",
+        {"request": request},
+    )
+
+
+@router.get("/admin/coupons", response_class=HTMLResponse)
+async def admin_coupons_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        "admin_coupons.html",
+        {"request": request},
+    )
+
+
+@router.get("/admin/transactions", response_class=HTMLResponse)
+async def admin_transactions_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        "admin_transactions.html",
+        {"request": request},
+    )
+
+
+@router.get("/admin/gateways", response_class=HTMLResponse)
+async def admin_gateways_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        "admin_gateways.html",
+        {"request": request},
+    )
+
+
+@router.get("/admin/admins", response_class=HTMLResponse)
+async def admin_admins_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        "admin_admins.html",
+        {"request": request},
+    )
+
+
+@router.get("/admin/logs", response_class=HTMLResponse)
+async def admin_logs_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        "admin_logs.html",
+        {"request": request},
     )
 
 

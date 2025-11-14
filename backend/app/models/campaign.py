@@ -124,6 +124,10 @@ class Campaign(Base):
         back_populates="campaign",
         cascade="all, delete-orphan",
     )
+    media: Mapped[list["CampaignMedia"]] = relationship(
+        back_populates="campaign",
+        cascade="all, delete-orphan",
+    )
 
 
 class CampaignContact(Base):
@@ -210,10 +214,40 @@ class CampaignMessage(Base):
     chip: Mapped[Optional["Chip"]] = relationship()
 
 
+class CampaignMedia(Base):
+    """Arquivos de mídia anexados à campanha."""
+
+    __tablename__ = "campaign_media"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    campaign_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("campaigns.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    original_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    stored_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    meta: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        default=func.now(),
+    )
+
+    campaign: Mapped[Campaign] = relationship(back_populates="media")
+
+
 __all__ = (
     "Campaign",
     "CampaignContact",
     "CampaignMessage",
+    "CampaignMedia",
     "CampaignType",
     "CampaignStatus",
     "MessageStatus",

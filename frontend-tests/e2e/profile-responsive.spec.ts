@@ -6,7 +6,7 @@ test.describe("Formulários e responsividade", () => {
   test("atualização de perfil exibe feedback positivo", async ({ page, request }) => {
     const user = await createTestUser(request);
     try {
-      await loginUI(page, user);
+      await loginUI(page, user, { request });
       await expect(page).toHaveURL(/\/dashboard$/);
       await page.goto("/settings");
       await expect(page).toHaveURL(/\/settings$/);
@@ -27,7 +27,7 @@ test.describe("Formulários e responsividade", () => {
   test("navegação móvel permite abrir e fechar o menu lateral", async ({ page, request }) => {
     const user = await createTestUser(request);
     try {
-      await loginUI(page, user);
+      await loginUI(page, user, { request });
       await expect(page.locator("#sidebar-toggle")).toBeVisible();
 
       await page.click("#sidebar-toggle");

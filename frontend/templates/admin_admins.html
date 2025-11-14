@@ -1,0 +1,304 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Administradores - WHAGO Admin{% endblock %}
+{% block page_title %}Gerenciar Administradores{% endblock %}
+{% block data_page %}admin-admins{% endblock %}
+
+{% block content %}
+<div class="admin-card" style="margin-bottom: 1.5rem;">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+        <div>
+            <h3 style="margin: 0; color: #2d3748;">Administradores do Sistema</h3>
+            <p style="margin: 0.5rem 0 0 0; color: #718096;">Gerencie quem tem acesso ao painel administrativo</p>
+        </div>
+        <div style="display: flex; gap: 0.5rem;">
+            <button class="btn btn-success" onclick="openCreateAdminModal()">
+                <i class="fas fa-plus"></i> Novo Admin
+            </button>
+            <button class="btn btn-primary" onclick="loadAdmins()">
+                <i class="fas fa-sync"></i> Atualizar
+            </button>
+        </div>
+    </div>
+
+    <div id="adminsTableContainer">
+        <div class="loading">
+            <i class="fas fa-spinner fa-spin"></i> Carregando...
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Criação de Admin -->
+<div id="createAdminModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title">Novo Administrador</h3>
+            <button class="modal-close" onclick="closeCreateAdminModal()">&times;</button>
+        </div>
+        <form id="createAdminForm">
+            <div class="form-group">
+                <label class="form-label">Email *</label>
+                <input type="email" id="createAdminEmail" class="form-control" required>
+                <small style="color: #718096;">Este será o login do administrador</small>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Senha *</label>
+                <input type="password" id="createAdminPassword" class="form-control" required minlength="8">
+                <small style="color: #718096;">Mínimo 8 caracteres</small>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Nível de Acesso *</label>
+                <select id="createAdminRole" class="form-control" required>
+                    <option value="suporte">Suporte - Acesso básico</option>
+                    <option value="financeiro">Financeiro - Transações e gateways</option>
+                    <option value="super_admin">Super Admin - Acesso total</option>
+                </select>
+            </div>
+
+            <div style="background: #fff3cd; padding: 1rem; border-radius: 8px; margin-bottom: 1rem;">
+                <strong>⚠️ Atenção:</strong>
+                <ul style="margin: 0.5rem 0 0 1.5rem; color: #856404;">
+                    <li><strong>Suporte:</strong> Pode ver usuários e responder tickets</li>
+                    <li><strong>Financeiro:</strong> Pode ver transações e gerenciar pagamentos</li>
+                    <li><strong>Super Admin:</strong> Pode criar/editar outros admins e tudo mais</li>
+                </ul>
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeCreateAdminModal()">Cancelar</button>
+                <button type="submit" class="btn btn-success">Criar Administrador</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<!-- Modal de Edição de Admin -->
+<div id="editAdminModal" class="modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3 class="modal-title">Editar Administrador</h3>
+            <button class="modal-close" onclick="closeEditAdminModal()">&times;</button>
+        </div>
+        <form id="editAdminForm">
+            <input type="hidden" id="editAdminId">
+            
+            <div class="form-group">
+                <label class="form-label">Email</label>
+                <input type="text" id="editAdminEmail" class="form-control" disabled>
+                <small style="color: #718096;">O email não pode ser alterado</small>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Nível de Acesso *</label>
+                <select id="editAdminRole" class="form-control" required>
+                    <option value="suporte">Suporte</option>
+                    <option value="financeiro">Financeiro</option>
+                    <option value="super_admin">Super Admin</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">
+                    <input type="checkbox" id="editAdminActive"> Conta Ativa
+                </label>
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeEditAdminModal()">Cancelar</button>
+                <button type="submit" class="btn btn-primary">Salvar Alterações</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    loadAdmins();
+    
+    document.getElementById('createAdminForm').addEventListener('submit', handleCreateAdmin);
+    document.getElementById('editAdminForm').addEventListener('submit', handleEditAdmin);
+});
+
+async function loadAdmins() {
+    const container = document.getElementById('adminsTableContainer');
+    container.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>';
+    
+    try {
+        const response = await adminFetch('/admin/admins');
+        if (!response?.ok) throw new Error();
+        
+        const admins = await response.json();
+        
+        if (admins.length === 0) {
+            container.innerHTML = '<p style="text-align: center; color: #718096;">Nenhum administrador encontrado.</p>';
+            return;
+        }
+        
+        let html = '<table class="admin-table"><thead><tr>';
+        html += '<th>Nome</th><th>Email</th><th>Nível de Acesso</th><th>Status</th><th>Criado em</th><th>Ações</th>';
+        html += '</tr></thead><tbody>';
+        
+        admins.forEach(admin => {
+            const roleNames = {
+                'super_admin': 'Super Admin',
+                'financeiro': 'Financeiro',
+                'suporte': 'Suporte'
+            };
+            
+            const roleBadgeColors = {
+                'super_admin': 'badge-danger',
+                'financeiro': 'badge-warning',
+                'suporte': 'badge-info'
+            };
+            
+            const statusBadge = admin.is_active 
+                ? '<span class="badge badge-success">Ativo</span>'
+                : '<span class="badge badge-danger">Inativo</span>';
+            
+            const roleBadge = `<span class="badge ${roleBadgeColors[admin.role]}">${roleNames[admin.role]}</span>`;
+            
+            html += `<tr>
+                <td>${admin.user_name}</td>
+                <td>${admin.user_email}</td>
+                <td>${roleBadge}</td>
+                <td>${statusBadge}</td>
+                <td>${new Date(admin.created_at).toLocaleDateString('pt-BR')}</td>
+                <td>
+                    <button class="btn btn-primary" onclick="editAdmin('${admin.id}')" style="padding: 0.25rem 0.5rem; font-size: 0.875rem;">
+                        <i class="fas fa-edit"></i> Editar
+                    </button>
+                    <button class="btn btn-danger" onclick="deleteAdmin('${admin.id}', '${admin.user_email}')" style="padding: 0.25rem 0.5rem; font-size: 0.875rem;">
+                        <i class="fas fa-trash"></i> Remover
+                    </button>
+                </td>
+            </tr>`;
+        });
+        
+        html += '</tbody></table>';
+        container.innerHTML = html;
+        
+    } catch (error) {
+        console.error('Erro ao carregar admins:', error);
+        container.innerHTML = '<p style="text-align: center; color: #f56565;">Erro ao carregar administradores.</p>';
+    }
+}
+
+function openCreateAdminModal() {
+    document.getElementById('createAdminForm').reset();
+    document.getElementById('createAdminModal').classList.add('active');
+}
+
+function closeCreateAdminModal() {
+    document.getElementById('createAdminModal').classList.remove('active');
+}
+
+async function handleCreateAdmin(e) {
+    e.preventDefault();
+    
+    const data = {
+        email: document.getElementById('createAdminEmail').value,
+        password: document.getElementById('createAdminPassword').value,
+        role: document.getElementById('createAdminRole').value
+    };
+    
+    try {
+        const response = await adminFetch('/admin/admins', {
+            method: 'POST',
+            body: JSON.stringify(data)
+        });
+        
+        if (!response?.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Erro ao criar administrador');
+        }
+        
+        showAlert('Administrador criado com sucesso!', 'success');
+        closeCreateAdminModal();
+        loadAdmins();
+    } catch (error) {
+        console.error('Erro:', error);
+        showAlert(error.message || 'Erro ao criar administrador', 'error');
+    }
+}
+
+async function editAdmin(adminId) {
+    try {
+        const response = await adminFetch('/admin/admins');
+        if (!response?.ok) throw new Error();
+        
+        const admins = await response.json();
+        const admin = admins.find(a => a.id === adminId);
+        
+        if (!admin) throw new Error('Admin não encontrado');
+        
+        document.getElementById('editAdminId').value = admin.id;
+        document.getElementById('editAdminEmail').value = admin.user_email;
+        document.getElementById('editAdminRole').value = admin.role;
+        document.getElementById('editAdminActive').checked = admin.is_active;
+        
+        document.getElementById('editAdminModal').classList.add('active');
+    } catch (error) {
+        console.error('Erro:', error);
+        showAlert('Erro ao carregar dados do administrador', 'error');
+    }
+}
+
+function closeEditAdminModal() {
+    document.getElementById('editAdminModal').classList.remove('active');
+}
+
+async function handleEditAdmin(e) {
+    e.preventDefault();
+    
+    const adminId = document.getElementById('editAdminId').value;
+    const data = {
+        role: document.getElementById('editAdminRole').value,
+        is_active: document.getElementById('editAdminActive').checked
+    };
+    
+    try {
+        const response = await adminFetch(`/admin/admins/${adminId}`, {
+            method: 'PUT',
+            body: JSON.stringify(data)
+        });
+        
+        if (!response?.ok) throw new Error();
+        
+        showAlert('Administrador atualizado com sucesso!', 'success');
+        closeEditAdminModal();
+        loadAdmins();
+    } catch (error) {
+        console.error('Erro:', error);
+        showAlert('Erro ao atualizar administrador', 'error');
+    }
+}
+
+async function deleteAdmin(adminId, email) {
+    if (!confirm(`Tem certeza que deseja remover o administrador "${email}"?\n\nEsta ação não pode ser desfeita!`)) {
+        return;
+    }
+    
+    try {
+        const response = await adminFetch(`/admin/admins/${adminId}`, {
+            method: 'DELETE'
+        });
+        
+        if (!response?.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Erro ao deletar');
+        }
+        
+        showAlert('Administrador removido com sucesso!', 'success');
+        loadAdmins();
+    } catch (error) {
+        console.error('Erro:', error);
+        showAlert(error.message || 'Erro ao remover administrador', 'error');
+    }
+}
+</script>
+{% endblock %}
+

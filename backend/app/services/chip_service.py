@@ -14,15 +14,17 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..models.chip import Chip, ChipEvent, ChipEventType, ChipStatus
-from ..models.plan import Plan
+from ..models.plan import Plan, PlanTier
 from ..models.user import User
 from .notification_service import NotificationService, NotificationType
 from .audit_service import AuditService
 from ..schemas.chip import (
     ChipCreate,
-    ChipResponse,
     ChipEventResponse,
+    ChipHeatUpResponse,
+    ChipHeatUpStage,
     ChipQrResponse,
+    ChipResponse,
 )
 from .baileys_client import BaileysClient, get_baileys_client
 
@@ -141,15 +143,51 @@ class ChipService:
                 expires_at = datetime.fromisoformat(expires_raw)
             except ValueError:
                 expires_at = None
-        return ChipQrResponse(qr=data.get("qr"), expires_at=expires_at)
+        # Baileys returns 'qr_code', normalize to 'qr'
+        qr_data = data.get("qr") or data.get("qr_code")
+        return ChipQrResponse(qr=qr_data, expires_at=expires_at)
 
     async def delete_chip(self, user: User, chip_id: UUID) -> None:
+        """
+        Deleta um chip e sua sessão do Baileys.
+        
+        Fluxo correto:
+        1. Se chip está conectado, desconecta primeiro
+        2. Deleta sessão do Baileys
+        3. Deleta arquivos de sessão do disco
+        4. Deleta registro do banco de dados
+        """
         chip = await self._get_user_chip(user, chip_id)
-        await self.baileys.delete_session(chip.session_id)
+        
+        # Se chip está conectado, desconectar primeiro
+        if chip.status == ChipStatus.CONNECTED:
+            try:
+                await self.baileys.disconnect_session(chip.session_id)
+            except HTTPException as e:
+                # Se retornar 404, a sessão já não existe no Baileys
+                if e.status_code != 404:
+                    raise
+        
+        # Deletar sessão do Baileys (remove do cache e desconecta)
+        try:
+            await self.baileys.delete_session(chip.session_id)
+        except HTTPException as e:
+            # Se retornar 404, a sessão já foi deletada ou nunca existiu
+            if e.status_code != 404:
+                raise
+        
+        # Deletar do banco de dados
         await self.session.delete(chip)
         await self.session.commit()
 
-    async def disconnect_chip(self, user: User, chip_id: UUID) -> ChipResponse:
+    async def disconnect_chip(
+        self,
+        user: User,
+        chip_id: UUID,
+        *,
+        user_agent: str | None = None,
+        ip_address: str | None = None,
+    ) -> ChipResponse:
         chip = await self._get_user_chip(user, chip_id)
         await self.baileys.disconnect_session(chip.session_id)
         chip.status = ChipStatus.DISCONNECTED
@@ -175,13 +213,82 @@ class ChipService:
             entity_id=str(chip.id),
             description=f"Chip {chip.alias} desconectado pelo usuário.",
             extra_data=None,
-            ip_address=None,
-            user_agent=None,
+            ip_address=ip_address,
+            user_agent=user_agent,
             auto_commit=False,
         )
         await self.session.commit()
         await self.session.refresh(chip)
         return ChipResponse.model_validate(chip)
+
+    async def start_heat_up(
+        self,
+        user: User,
+        chip_id: UUID,
+        *,
+        user_agent: str | None = None,
+        ip_address: str | None = None,
+    ) -> ChipHeatUpResponse:
+        chip = await self._get_user_chip(user, chip_id)
+        await self._ensure_maturation_allowed(user)
+        stages = self._build_heat_up_plan(user.plan)
+
+        chip.status = ChipStatus.MATURING
+        chip.last_activity_at = datetime.utcnow()
+        extra = chip.extra_data.copy() if chip.extra_data else {}
+        extra["heat_up"] = {
+            "status": "in_progress",
+            "plan": stages,
+            "started_at": datetime.utcnow().isoformat(),
+        }
+        chip.extra_data = extra
+
+        await self._add_event(
+            chip,
+            ChipEventType.SYSTEM,
+            "Plano de aquecimento iniciado.",
+            {"plan": stages},
+        )
+        for stage in stages:
+            await self._add_event(
+                chip,
+                ChipEventType.INFO,
+                f"Estágio {stage['stage']}: {stage['messages_per_hour']} msgs/h por {stage['duration_hours']}h.",
+                {"stage": stage},
+            )
+
+        notifier = NotificationService(self.session)
+        await notifier.create(
+            user_id=user.id,
+            title="Heat-up iniciado",
+            message=f"O chip {chip.alias} entrou em aquecimento automático.",
+            type_=NotificationType.INFO,
+            extra_data={"chip_id": str(chip.id)},
+            auto_commit=False,
+        )
+        audit = AuditService(self.session)
+        await audit.record(
+            user_id=user.id,
+            action="chip.heat_up_start",
+            entity_type="chip",
+            entity_id=str(chip.id),
+            description="Plano de aquecimento automático iniciado.",
+            extra_data={"stages": stages},
+            ip_address=ip_address,
+            user_agent=user_agent,
+            auto_commit=False,
+        )
+        await self.session.commit()
+        await self.session.refresh(chip)
+
+        stage_models = [ChipHeatUpStage(**stage) for stage in stages]
+        recommended_total = sum(stage["duration_hours"] for stage in stages)
+        return ChipHeatUpResponse(
+            chip_id=chip.id,
+            message="Plano de aquecimento iniciado com sucesso.",
+            stages=stage_models,
+            recommended_total_hours=recommended_total,
+        )
 
     async def _get_user_chip(self, user: User, chip_id: UUID) -> Chip:
         chip = await self.session.get(Chip, chip_id)
@@ -223,6 +330,56 @@ class ChipService:
         if not plan:
             return 1
         return plan.max_chips or 1
+
+    async def _ensure_maturation_allowed(self, user: User) -> None:
+        await self.session.refresh(user, attribute_names=["plan"])
+        features = user.plan.features if user.plan else {}
+        allowed = features.get("chip_maturation")
+        if not allowed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Seu plano não possui suporte ao aquecimento automático de chips.",
+            )
+
+    @staticmethod
+    def _build_heat_up_plan(plan: Plan | None) -> list[dict]:
+        base_plan = [
+            {
+                "stage": 1,
+                "duration_hours": 4,
+                "messages_per_hour": 20,
+                "description": "Envie apenas mensagens de confirmação e saudações para contatos internos.",
+            },
+            {
+                "stage": 2,
+                "duration_hours": 8,
+                "messages_per_hour": 40,
+                "description": "Ative pequenos grupos de clientes com respostas rápidas e monitoradas.",
+            },
+            {
+                "stage": 3,
+                "duration_hours": 12,
+                "messages_per_hour": 60,
+                "description": "Escalone para listas segmentadas utilizando templates aprovados.",
+            },
+            {
+                "stage": 4,
+                "duration_hours": 24,
+                "messages_per_hour": 80,
+                "description": "Libere campanhas completas mantendo intervalos mínimos e monitoramento.",
+            },
+        ]
+
+        if plan and plan.tier == PlanTier.ENTERPRISE:
+            base_plan.append(
+                {
+                    "stage": 5,
+                    "duration_hours": 24,
+                    "messages_per_hour": 120,
+                    "description": "Habilite IA para respostas automáticas e priorize horários de maior engajamento.",
+                }
+            )
+        return base_plan
 
     async def _add_event(
         self,

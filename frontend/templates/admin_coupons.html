@@ -1,0 +1,87 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Cupons - WHAGO Admin{% endblock %}
+{% block page_title %}Gerenciar Cupons{% endblock %}
+{% block data_page %}admin-coupons{% endblock %}
+
+{% block content %}
+<div class="admin-card">
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+        <h3 style="margin: 0;">Cupons de Desconto</h3>
+        <button class="btn btn-primary" onclick="loadCoupons()">
+            <i class="fas fa-sync"></i> Atualizar
+        </button>
+    </div>
+
+    <div id="couponsContainer">
+        <div class="loading">
+            <i class="fas fa-spinner fa-spin"></i> Carregando...
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    loadCoupons();
+});
+
+async function loadCoupons() {
+    const container = document.getElementById('couponsContainer');
+    container.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>';
+    
+    try {
+        const response = await adminFetch('/admin/coupons');
+        if (!response?.ok) throw new Error();
+        
+        const coupons = await response.json();
+        
+        if (coupons.length === 0) {
+            container.innerHTML = '<p style="text-align: center; color: #718096;">Nenhum cupom encontrado.</p>';
+            return;
+        }
+        
+        let html = '<table class="admin-table"><thead><tr>';
+        html += '<th>Código</th><th>Tipo</th><th>Desconto</th><th>Usos</th><th>Validade</th><th>Status</th>';
+        html += '</tr></thead><tbody>';
+        
+        coupons.forEach(coupon => {
+            const discountType = coupon.discount_type === 'percentage' ? 'Percentual' : 'Fixo';
+            const discountValue = coupon.discount_type === 'percentage' 
+                ? `${coupon.discount_value}%`
+                : `R$ ${coupon.discount_value}`;
+            
+            const statusBadge = coupon.is_active 
+                ? '<span class="badge badge-success">Ativo</span>'
+                : '<span class="badge badge-danger">Inativo</span>';
+            
+            const validUntil = coupon.valid_until 
+                ? new Date(coupon.valid_until).toLocaleDateString('pt-BR')
+                : 'Sem limite';
+            
+            const usageInfo = coupon.max_uses 
+                ? `${coupon.times_used}/${coupon.max_uses}`
+                : `${coupon.times_used}/∞`;
+            
+            html += `<tr>
+                <td><strong><code>${coupon.code}</code></strong></td>
+                <td>${discountType}</td>
+                <td>${discountValue}</td>
+                <td>${usageInfo}</td>
+                <td>${validUntil}</td>
+                <td>${statusBadge}</td>
+            </tr>`;
+        });
+        
+        html += '</tbody></table>';
+        container.innerHTML = html;
+        
+    } catch (error) {
+        console.error('Erro:', error);
+        container.innerHTML = '<p style="text-align: center; color: #f56565;">Erro ao carregar cupons.</p>';
+    }
+}
+</script>
+{% endblock %}
+

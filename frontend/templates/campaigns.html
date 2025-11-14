@@ -1,25 +1,32 @@
 {% extends "base.html" %}
 {% block title %}Campanhas | WHAGO{% endblock %}
 {% block content %}
-<section class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+<section class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
   <div>
     <h2 class="page-title">Campanhas</h2>
-    <p class="page-subtitle">Monitore rascunhos, campanhas em andamento e resultados finais.</p>
+    <p class="page-subtitle">
+      Crie, planeje e acompanhe seus disparos em todas as fases. Gerencie rascunhos, agendamentos e campanhas em andamento com feedback em tempo real.
+    </p>
   </div>
-  <a href="/campaigns" id="create-campaign" class="btn-primary sm:w-auto">Nova campanha</a>
+  <div class="flex items-center gap-3">
+    <button data-test="campaign-wizard-open" class="btn-primary">Nova campanha</button>
+    <button id="campaigns-refresh" class="btn-secondary">Atualizar lista</button>
+  </div>
 </section>
 
-<section class="mt-8 card">
+<p id="campaign-feedback" class="mt-4 text-sm text-slate-500" aria-live="polite" role="status"></p>
+
+<section class="mt-4 card">
   <div class="overflow-x-auto">
     <table class="table-auto w-full text-sm" id="campaign-table">
       <thead>
         <tr class="text-left text-slate-500">
-          <th class="py-2">Nome</th>
+          <th class="py-2">Campanha</th>
           <th class="py-2">Status</th>
           <th class="py-2">Progresso</th>
-          <th class="py-2">Sucesso</th>
-          <th class="py-2">Criada em</th>
-          <th class="py-2">Ações</th>
+          <th class="py-2">Chips</th>
+          <th class="py-2">Criada</th>
+          <th class="py-2 text-right">Ações</th>
         </tr>
       </thead>
       <tbody class="divide-y divide-slate-200"></tbody>
@@ -27,5 +34,150 @@
   </div>
 </section>
 
-<section class="mt-8 grid gap-6 lg:grid-cols-2" id="campaign-details"></section>
+<section class="mt-6 grid gap-6 lg:grid-cols-2" id="campaign-sidepanels">
+  <article class="card space-y-3" id="campaign-insights">
+    <div class="card__header">
+      <h3 class="card__title">Resumo rápido</h3>
+      <p class="card__subtitle">KPIs das últimas campanhas enviadas e rascunhos pendentes.</p>
+    </div>
+    <dl class="grid gap-4 text-sm sm:grid-cols-2" id="campaign-insights-body"></dl>
+    <p class="text-xs text-slate-400" id="campaign-insights-empty">Nenhuma campanha encontrada. Crie sua primeira campanha para acompanhar os KPIs.</p>
+  </article>
+  <article class="card space-y-3" id="campaign-latest-messages">
+    <div class="card__header">
+      <h3 class="card__title">Últimas mensagens enviadas</h3>
+      <p class="card__subtitle">Acompanhe distribuição entre chips, status de entrega e eventuais falhas.</p>
+    </div>
+    <div class="overflow-x-auto">
+      <table class="table-auto w-full text-xs" id="campaign-messages-table">
+        <thead>
+          <tr class="text-left text-slate-500">
+            <th class="py-2">Contato</th>
+            <th class="py-2">Chip</th>
+            <th class="py-2">Status</th>
+            <th class="py-2">Enviada</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-200"></tbody>
+      </table>
+      <p class="text-xs text-slate-400" id="campaign-messages-empty">Nenhuma mensagem registrada ainda.</p>
+    </div>
+  </article>
+</section>
+
+<div id="campaign-wizard" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="campaign-wizard-title">
+  <div class="modal__content wizard">
+    <div class="modal__header">
+      <div>
+        <h3 id="campaign-wizard-title" class="modal__title">Assistente de campanha</h3>
+        <p class="text-xs text-slate-500" id="campaign-wizard-subtitle">Preencha as etapas abaixo para concluir sua campanha.</p>
+      </div>
+      <button type="button" id="campaign-wizard-close" class="modal__close" aria-label="Fechar">✕</button>
+    </div>
+
+    <ol id="campaign-steps" class="wizard__steps">
+      <li data-step="1" class="wizard__step wizard__step--active">1. Informações</li>
+      <li data-step="2" class="wizard__step">2. Seleção de chips</li>
+      <li data-step="3" class="wizard__step">3. Contatos</li>
+      <li data-step="4" class="wizard__step">4. Revisão</li>
+    </ol>
+
+    <section id="campaign-step-1" class="wizard__panel">
+      <form id="campaign-basic-form" class="space-y-4">
+        <div class="space-y-2">
+          <label class="card__label" for="campaign-name">Nome da campanha</label>
+          <input id="campaign-name" class="input" placeholder="Campanha de oferta" required minlength="3" />
+        </div>
+        <div class="space-y-2">
+          <label class="card__label" for="campaign-description">Descrição</label>
+          <textarea id="campaign-description" class="input" rows="2" placeholder="Objetivo, público, oferta..."></textarea>
+        </div>
+        <div class="grid gap-4 md:grid-cols-2">
+          <div class="space-y-2">
+            <label class="card__label" for="campaign-template">Mensagem (etapa principal)</label>
+            <textarea id="campaign-template" class="input" rows="4" placeholder="Olá {{nome}}, temos uma condição especial!" required></textarea>
+          </div>
+          <div class="space-y-2">
+            <label class="card__label" for="campaign-template-b">Mensagem B (opcional)</label>
+            <textarea id="campaign-template-b" class="input" rows="4" placeholder="Use para testes A/B (Enterprise)"></textarea>
+          </div>
+        </div>
+        <div id="campaign-variables-box" class="hidden space-y-2 rounded-xl border border-dashed border-slate-300 p-3">
+          <h4 class="text-sm font-medium text-slate-700">Variáveis detectadas</h4>
+          <div id="campaign-variables" class="flex flex-wrap gap-2 text-xs"></div>
+          <p class="text-xs text-slate-500">Clique em uma variável para inserir no texto usando o formato <code>{{variavel}}</code>.</p>
+        </div>
+        <div class="space-y-2">
+          <label class="card__label" for="campaign-media">Anexar mídia (opcional)</label>
+          <input id="campaign-media" type="file" class="input" accept="image/*,application/pdf,audio/*,video/mp4" />
+          <p id="campaign-media-feedback" class="text-xs text-slate-500">Formatos aceitos: imagens, PDF, áudio (MP3/OGG) e vídeo MP4 até 10MB.</p>
+          <ul id="campaign-media-list" class="hidden space-y-1 text-xs text-slate-600"></ul>
+        </div>
+        <label class="inline-flex items-center gap-2 text-sm text-slate-600">
+          <input type="checkbox" id="campaign-schedule-toggle" class="rounded border-slate-300" />
+          Agendar envio futuro
+        </label>
+        <div id="campaign-schedule-fields" class="grid gap-3 md:grid-cols-2 hidden">
+          <div class="space-y-2">
+            <label class="card__label" for="campaign-schedule-datetime">Data e hora</label>
+            <input type="datetime-local" id="campaign-schedule-datetime" class="input" />
+          </div>
+          <p class="text-xs text-slate-500">
+            Disponível conforme recursos do plano. Ajuste a data com antecedência mínima de 10 minutos.
+          </p>
+        </div>
+        <div class="wizard__actions">
+          <button type="button" class="btn-secondary" id="campaign-basic-cancel">Cancelar</button>
+          <button type="submit" class="btn-primary" data-test="campaign-basic-next">Continuar</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="campaign-step-2" class="wizard__panel hidden">
+      <form id="campaign-chips-form" class="space-y-4">
+        <p class="text-sm text-slate-600">Selecione os chips que participarão desta campanha. A rotação automática distribuirá as mensagens para reduzir riscos.</p>
+        <div id="campaign-chips-list" class="grid gap-3 md:grid-cols-2"></div>
+        <div class="space-y-2">
+          <label class="card__label" for="campaign-interval">Intervalo mínimo entre mensagens (segundos)</label>
+          <input id="campaign-interval" type="number" class="input" min="1" value="10" />
+          <label class="inline-flex items-center gap-2 text-sm text-slate-600">
+            <input type="checkbox" id="campaign-randomize" class="rounded border-slate-300" />
+            Aleatorizar intervalo (± 30%)
+          </label>
+        </div>
+        <div class="wizard__actions">
+          <button type="button" class="btn-secondary" data-step-back="1">Voltar</button>
+          <button type="submit" class="btn-primary" data-test="campaign-chips-next">Continuar</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="campaign-step-3" class="wizard__panel hidden">
+      <form id="campaign-contacts-form" class="space-y-4" enctype="multipart/form-data">
+        <p class="text-sm text-slate-600">
+          Importe uma planilha CSV com pelo menos a coluna <code>numero</code> (E.164). Outras colunas serão tratadas como variáveis para personalização.
+        </p>
+        <div class="space-y-2">
+          <label class="card__label" for="campaign-contacts-file">Arquivo CSV</label>
+          <input id="campaign-contacts-file" type="file" accept=".csv" class="input" required />
+        </div>
+        <div id="campaign-contacts-summary" class="text-sm text-slate-600 hidden"></div>
+        <div id="campaign-variables-summary" class="hidden rounded-xl border border-dashed border-slate-300 p-3 text-xs text-slate-600"></div>
+        <div class="wizard__actions">
+          <button type="button" class="btn-secondary" data-step-back="2">Voltar</button>
+          <button type="submit" class="btn-primary" data-test="campaign-contacts-next">Continuar</button>
+        </div>
+      </form>
+    </section>
+
+    <section id="campaign-step-4" class="wizard__panel hidden">
+      <div class="space-y-4" id="campaign-review"></div>
+      <div class="wizard__actions">
+        <button type="button" class="btn-secondary" data-step-back="3">Voltar</button>
+        <button type="button" class="btn-primary" id="campaign-start-button" data-test="campaign-start">Iniciar envio</button>
+      </div>
+    </section>
+  </div>
+</div>
+<div id="campaign-wizard-backdrop" class="modal__backdrop hidden" aria-hidden="true"></div>
 {% endblock %}

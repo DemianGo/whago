@@ -19,13 +19,14 @@
   "author": "WHAGO Team",
   "license": "MIT",
   "dependencies": {
-    "@whiskeysockets/baileys": "^6.6.0",
+    "@whiskeysockets/baileys": "^6.7.21",
     "axios": "^1.6.5",
     "cors": "^2.8.5",
     "dotenv": "^16.4.1",
     "express": "^4.18.2",
     "express-rate-limit": "^7.1.5",
     "helmet": "^7.1.0",
+    "https-proxy-agent": "^7.0.6",
     "joi": "^17.12.0",
     "libphonenumber-js": "^1.10.56",
     "morgan": "^1.10.1",
@@ -35,6 +36,7 @@
     "qrcode": "^1.5.3",
     "sharp": "^0.33.2",
     "socket.io": "^4.6.1",
+    "socks-proxy-agent": "^8.0.5",
     "uuid": "^9.0.1",
     "winston": "^3.11.0"
   },

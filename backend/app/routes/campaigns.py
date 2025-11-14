@@ -9,6 +9,7 @@ from contextlib import suppress
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile, WebSocket, WebSocketDisconnect, status
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
@@ -21,6 +22,7 @@ from ..schemas.campaign import (
     CampaignActionResponse,
     CampaignCreate,
     CampaignDetail,
+    CampaignMediaResponse,
     CampaignMessageResponse,
     CampaignSummary,
     CampaignUpdate,
@@ -118,6 +120,16 @@ async def start_campaign(
     return await service.start_campaign(current_user, campaign_id)
 
 
+@router.post("/{campaign_id}/dispatch-sync", response_model=CampaignActionResponse)
+async def dispatch_campaign_sync(
+    campaign_id: UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> CampaignActionResponse:
+    service = CampaignService(session)
+    return await service.dispatch_sync(current_user, campaign_id)
+
+
 @router.post(
     "/{campaign_id}/pause",
     response_model=CampaignActionResponse,
@@ -209,5 +221,64 @@ async def campaign_updates_ws(websocket: WebSocket, campaign_id: UUID) -> None:
             await pubsub.close()
             with suppress(RuntimeError):
                 await websocket.close()
+
+
+@router.get(
+    "/{campaign_id}/media",
+    response_model=list[CampaignMediaResponse],
+)
+async def list_campaign_media(
+    campaign_id: UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> list[CampaignMediaResponse]:
+    service = CampaignService(session)
+    return await service.list_media(current_user, campaign_id)
+
+
+@router.post(
+    "/{campaign_id}/media",
+    response_model=CampaignMediaResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def upload_campaign_media(
+    campaign_id: UUID,
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> CampaignMediaResponse:
+    service = CampaignService(session)
+    return await service.upload_media(current_user, campaign_id, file)
+
+
+@router.get(
+    "/{campaign_id}/media/{media_id}",
+    response_class=FileResponse,
+)
+async def download_campaign_media(
+    campaign_id: UUID,
+    media_id: UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> FileResponse:
+    service = CampaignService(session)
+    return await service.download_media(current_user, campaign_id, media_id)
+
+
+@router.delete(
+    "/{campaign_id}/media/{media_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    response_class=Response,
+    response_model=None,
+)
+async def delete_campaign_media(
+    campaign_id: UUID,
+    media_id: UUID,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> Response:
+    service = CampaignService(session)
+    await service.delete_media(current_user, campaign_id, media_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

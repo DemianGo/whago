@@ -1,0 +1,184 @@
+{% extends "base_admin.html" %}
+
+{% block title %}Gateways - WHAGO Admin{% endblock %}
+{% block page_title %}Configuração de Pagamentos{% endblock %}
+{% block data_page %}admin-gateways{% endblock %}
+
+{% block content %}
+<div class="admin-card" style="margin-bottom: 1.5rem;">
+    <div style="background: #fff3cd; padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem; border-left: 4px solid #ffc107;">
+        <strong>⚠️ Atenção:</strong> Estas configurações controlam os métodos de pagamento do sistema. 
+        Altere apenas se souber o que está fazendo!
+    </div>
+
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+        <h3 style="margin: 0;">Gateways de Pagamento</h3>
+        <button class="btn btn-primary" onclick="loadGateways()">
+            <i class="fas fa-sync"></i> Atualizar
+        </button>
+    </div>
+
+    <div id="gatewaysContainer">
+        <div class="loading">
+            <i class="fas fa-spinner fa-spin"></i> Carregando...
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Edição de Gateway -->
+<div id="editGatewayModal" class="modal">
+    <div class="modal-content" style="max-width: 700px;">
+        <div class="modal-header">
+            <h3 class="modal-title">Configurar Gateway</h3>
+            <button class="modal-close" onclick="closeEditGatewayModal()">&times;</button>
+        </div>
+        <form id="editGatewayForm">
+            <input type="hidden" id="editGatewayId">
+            
+            <div style="background: #e3f2fd; padding: 1rem; border-radius: 8px; margin-bottom: 1.5rem;">
+                <h4 style="margin: 0 0 0.5rem 0;" id="gatewayTitle"></h4>
+                <p style="margin: 0; color: #1565c0;" id="gatewayDescription"></p>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">
+                    <input type="checkbox" id="editGatewayEnabled"> Gateway Habilitado
+                </label>
+                <small style="color: #718096;">Se desabilitado, os clientes não poderão usar este método de pagamento</small>
+            </div>
+
+            <div class="form-group">
+                <label class="form-label">Modo de Operação *</label>
+                <select id="editGatewayMode" class="form-control">
+                    <option value="false">🧪 Sandbox (Teste) - Não cobra valores reais</option>
+                    <option value="true">💰 Produção - Cobra valores reais</option>
+                </select>
+            </div>
+
+            <hr style="margin: 2rem 0;">
+
+            <!-- Sandbox Credentials -->
+            <div style="background: #fff8dc; padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem;">
+                <h4 style="margin: 0 0 1rem 0;">🧪 Credenciais Sandbox (Teste)</h4>
+                
+                <div class="form-group">
+                    <label class="form-label">Access Token / API Key</label>
+                    <input type="text" id="sandboxAccessToken" class="form-control" placeholder="TEST-...">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Public Key</label>
+                    <input type="text" id="sandboxPublicKey" class="form-control" placeholder="TEST-...">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Webhook Secret</label>
+                    <input type="text" id="sandboxWebhookSecret" class="form-control">
+                </div>
+            </div>
+
+            <!-- Production Credentials -->
+            <div style="background: #ffe0e0; padding: 1.5rem; border-radius: 8px; margin-bottom: 1.5rem;">
+                <h4 style="margin: 0 0 1rem 0;">💰 Credenciais Produção (Real)</h4>
+                
+                <div class="form-group">
+                    <label class="form-label">Access Token / API Key</label>
+                    <input type="text" id="productionAccessToken" class="form-control" placeholder="APP-...">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Public Key</label>
+                    <input type="text" id="productionPublicKey" class="form-control" placeholder="APP-...">
+                </div>
+
+                <div class="form-group">
+                    <label class="form-label">Webhook Secret</label>
+                    <input type="text" id="productionWebhookSecret" class="form-control">
+                </div>
+            </div>
+
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" onclick="closeEditGatewayModal()">Cancelar</button>
+                <button type="submit" class="btn btn-success">💾 Salvar Configuração</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+    loadGateways();
+});
+
+async function loadGateways() {
+    const container = document.getElementById('gatewaysContainer');
+    container.innerHTML = '<div class="loading"><i class="fas fa-spinner fa-spin"></i> Carregando...</div>';
+    
+    try {
+        const response = await adminFetch('/admin/gateways');
+        if (!response?.ok) throw new Error();
+        
+        const gateways = await response.json();
+        
+        let html = '<div style="display: grid; gap: 1.5rem;">';
+        
+        gateways.forEach(gw => {
+            const statusBadge = gw.is_enabled 
+                ? '<span class="badge badge-success">Habilitado</span>'
+                : '<span class="badge badge-danger">Desabilitado</span>';
+            
+            const modeBadge = gw.is_active_mode_production
+                ? '<span class="badge badge-danger">PRODUÇÃO</span>'
+                : '<span class="badge badge-warning">SANDBOX</span>';
+            
+            const icons = {
+                'mercadopago': '💳',
+                'paypal': '🅿️',
+                'stripe': '💠'
+            };
+            
+            html += `
+                <div style="border: 2px solid ${gw.is_enabled ? '#48bb78' : '#e2e8f0'}; border-radius: 12px; padding: 1.5rem;">
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <h3 style="margin: 0 0 0.5rem 0; font-size: 1.5rem;">
+                                ${icons[gw.gateway] || '💳'} ${gw.name}
+                            </h3>
+                            <div style="display: flex; gap: 0.5rem;">
+                                ${statusBadge}
+                                ${modeBadge}
+                            </div>
+                        </div>
+                        <div>
+                            <button class="btn btn-secondary" onclick="viewGateway('${gw.gateway}')" style="margin-right: 0.5rem;">
+                                <i class="fas fa-eye"></i> Ver
+                            </button>
+                        </div>
+                    </div>
+                    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px solid #e2e8f0;">
+                        <small style="color: #718096;">
+                            Gateway: <code>${gw.gateway}</code><br>
+                            Criado em: ${new Date(gw.created_at).toLocaleDateString('pt-BR')}
+                        </small>
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += '</div>';
+        container.innerHTML = html;
+        
+    } catch (error) {
+        console.error('Erro:', error);
+        container.innerHTML = '<p style="text-align: center; color: #f56565;">Erro ao carregar gateways.</p>';
+    }
+}
+
+function viewGateway(gateway) {
+    alert(`Configuração do ${gateway}\n\nPara editar as credenciais, use variáveis de ambiente ou o banco de dados diretamente.\n\nEm breve teremos interface de edição completa!`);
+}
+</script>
+{% endblock %}
+
