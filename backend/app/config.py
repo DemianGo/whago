@@ -31,9 +31,9 @@ class Settings(BaseSettings):
     celery_task_queue_campaigns: str = "whago_campaigns"
     celery_task_soft_time_limit: int = 120
     
-    # Baileys Service
-    baileys_api_url: str = "http://baileys:3000"
-    baileys_api_key: str = "baileys-secret-key-dev"
+    # WAHA Service
+    waha_api_url: str = "http://waha:3000"
+    waha_api_key: str = "0c5bd2c0cf1b46548db200a2735679e2"
     
     # JWT
     jwt_secret_key: str = "your-jwt-secret-key"

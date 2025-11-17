@@ -123,12 +123,18 @@ class WAHAClient:
                 f"User: {user_id} | Tenant: {tenant_id}"
             )
             
-            # Iniciar sessão
-            start_response = await client.post(f"/api/sessions/{session_name}/start")
-            start_response.raise_for_status()
-            start_data = start_response.json()
-            
-            logger.info(f"Sessão iniciada: {session_name} | Status: {start_data.get('status')}")
+            # Iniciar sessão (se não estiver já iniciando/iniciada)
+            try:
+                start_response = await client.post(f"/api/sessions/{session_name}/start")
+                start_response.raise_for_status()
+                start_data = start_response.json()
+                logger.info(f"Sessão iniciada: {session_name} | Status: {start_data.get('status')}")
+            except httpx.HTTPStatusError as e:
+                if e.response.status_code == 422:
+                    # Sessão já está iniciando/iniciada, apenas logar
+                    logger.info(f"Sessão {session_name} já estava em andamento")
+                else:
+                    raise
             
             # Aguardar um pouco para a sessão inicializar
             await asyncio.sleep(3)
@@ -138,9 +144,15 @@ class WAHAClient:
             status_response.raise_for_status()
             final_data = status_response.json()
             
+            # Session ID curto para caber no VARCHAR(100)
+            import hashlib
+            # Usar hash do alias completo para manter único mas curto
+            alias_hash = hashlib.md5(f"{tenant_id}_{alias}".encode()).hexdigest()[:8]
+            short_session_id = f"waha_{alias_hash}"
+            
             return {
-                "session_id": f"{alias}_{session_name}",  # Identificador único
-                "sessionId": f"{alias}_{session_name}",
+                "session_id": short_session_id,
+                "sessionId": short_session_id,
                 "status": final_data.get("status", "STARTING"),
                 "waha_session": session_name,
                 "alias": alias,
@@ -159,10 +171,10 @@ class WAHAClient:
         Obtém o QR Code de uma sessão.
         
         Args:
-            session_id: ID da sessão (format: alias_default)
+            session_id: ID da sessão (format: waha_xxxxx)
             
         Returns:
-            Dict com qr_code (base64 ou ASCII), status, etc.
+            Dict com qr_code (base64), status, etc.
         """
         client = await self._get_client()
         
@@ -178,15 +190,34 @@ class WAHAClient:
             status = session_data.get("status", "UNKNOWN")
             
             if status == "SCAN_QR_CODE":
-                # QR Code está disponível nos logs do container
-                # Como não temos endpoint direto, vamos retornar info para buscar nos logs
-                return {
-                    "qr_code": None,
-                    "qr_available_in_logs": True,
-                    "status": status,
-                    "message": "QR Code disponível nos logs do Docker: docker logs waha | grep -A 35 '▄▄▄▄▄'",
-                    "session_id": session_id,
-                }
+                # ✅ WAHA Core TEM endpoint de QR Code! Retorna PNG
+                try:
+                    import base64
+                    qr_response = await client.get(f"/api/{waha_session}/auth/qr")
+                    qr_response.raise_for_status()
+                    
+                    # Converter PNG para base64
+                    qr_png_bytes = qr_response.content
+                    qr_base64 = base64.b64encode(qr_png_bytes).decode('utf-8')
+                    qr_data_uri = f"data:image/png;base64,{qr_base64}"
+                    
+                    logger.info(f"QR Code obtido com sucesso para sessão {session_id}")
+                    
+                    return {
+                        "qr_code": qr_data_uri,
+                        "status": status,
+                        "session_id": session_id,
+                    }
+                except httpx.HTTPError as e:
+                    logger.warning(f"Erro ao obter QR Code PNG: {e}")
+                    return {
+                        "qr_code": None,
+                        "qr_available_in_logs": True,
+                        "status": status,
+                        "message": "QR Code disponível nos logs do Docker",
+                        "session_id": session_id,
+                    }
+                    
             elif status in ["WORKING", "CONNECTED"]:
                 return {
                     "qr_code": None,
@@ -199,7 +230,7 @@ class WAHAClient:
                 return {
                     "qr_code": None,
                     "status": status,
-                    "message": f"Sessão no status: {status}",
+                    "message": f"Sessão no status: {status}. Aguarde...",
                     "session_id": session_id,
                 }
                 
@@ -301,9 +332,14 @@ _waha_client: WAHAClient | None = None
 
 def get_waha_client() -> WAHAClient:
     """Retorna instância global do cliente WAHA."""
+    from ..config import settings
+    
     global _waha_client
     if _waha_client is None:
-        _waha_client = WAHAClient()
+        _waha_client = WAHAClient(
+            base_url=settings.waha_api_url,
+            api_key=settings.waha_api_key,
+        )
     return _waha_client
 
 

@@ -41,7 +41,8 @@ services:
       # Estas variáveis de ambiente sobrescrevem o .env
       UVICORN_RELOAD_FLAG: "${UVICORN_RELOAD_FLAG:-}"
       PYTHONPATH: "/app"
-      BAILEYS_API_URL: "http://baileys:3030/api/v1"
+      WAHA_API_URL: "http://waha:3000"
+      WAHA_API_KEY: "0c5bd2c0cf1b46548db200a2735679e2"
       REDIS_URL: "redis://redis:6379/0"
       CELERY_BROKER_URL: "redis://redis:6379/1"
       CELERY_RESULT_BACKEND: "redis://redis:6379/2"
@@ -64,6 +65,7 @@ services:
       - ./backend:/app
       - ./backend/.env:/app/.env
       - ./frontend:/app/frontend
+      - /var/run/docker.sock:/var/run/docker.sock  # Docker socket para WahaContainerManager
     command: >
       sh -c "uvicorn app.main:app --host 0.0.0.0 --port 8000 $$UVICORN_RELOAD_FLAG"
 
@@ -92,25 +94,19 @@ services:
     command: >
       sh -c "celery -A tasks.celery_app worker --loglevel=info --concurrency=1"
 
-  baileys:
-    build:
-      context: ./baileys-service
-      dockerfile: Dockerfile
-    container_name: whago-baileys
+  waha:
+    image: devlikeapro/waha:latest
+    container_name: whago-waha
     restart: always
-    depends_on:
-      redis:
-        condition: service_healthy
-    env_file:
-      - ./baileys-service/.env
-    environment:
-      WHAGO_BAILEYS_PORT: 3030
     ports:
-      - "3030:3030"
+      - "3000:3000"
+    environment:
+      - WHATSAPP_HOOK_URL=http://backend:8000/webhook
+      - WHATSAPP_HOOK_EVENTS=*
+      - WAHA_API_KEY=0c5bd2c0cf1b46548db200a2735679e2
     volumes:
-      - ./baileys-service:/app
-    command: >
-      sh -c "npm install && npm start"
+      - waha_data:/app/.waha
 
 volumes:
   pgdata:
+  waha_data:

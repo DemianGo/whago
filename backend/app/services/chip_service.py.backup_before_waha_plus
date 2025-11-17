@@ -29,7 +29,6 @@ from ..schemas.chip import (
     ChipResponse,
 )
 from .waha_client import WAHAClient, get_waha_client
-from .waha_container_manager import WahaContainerManager, get_waha_container_manager
 
 
 logger = logging.getLogger("whago.chips")
@@ -40,12 +39,9 @@ class ChipService:
         self,
         session: AsyncSession,
         waha_client: WAHAClient | None = None,
-        container_manager: WahaContainerManager | None = None,
     ):
         self.session = session
         self.waha = waha_client or get_waha_client()
-        self.container_manager = container_manager or get_waha_container_manager()
-        self.waha_client_cache: dict[str, WAHAClient] = {}  # user_id -> WAHAClient
 
     async def list_chips(self, user: User) -> list[ChipResponse]:
         result = await self.session.execute(
@@ -107,61 +103,53 @@ class ChipService:
             logger.warning(f"Falha ao atribuir proxy ao chip {chip.id}: {exc}. Continuando sem proxy.")
             proxy_url = None
 
-        # ✅ CRIAR CONTAINER WAHA PLUS E SESSÃO
+        # ✅ CRIAR SESSÃO COM SISTEMA ANTI-BLOCK
         try:
-            # 1. Garantir que usuário tem container WAHA Plus
-            logger.info(f"Verificando/criando container WAHA Plus para user {user.id}")
-            container = await self.container_manager.get_user_container(str(user.id))
+            # Determinar perfis baseado no plano do usuário
+            await self.session.refresh(user, attribute_names=["plan"])
             
-            if not container:
-                logger.info(f"Container não existe, criando novo para user {user.id}")
-                container = await self.container_manager.create_user_container(str(user.id))
-                logger.info(
-                    f"Container WAHA Plus criado: {container['container_name']} "
-                    f"(Porta: {container['port']})"
-                )
-            else:
-                logger.info(f"Container existente encontrado: {container['container_name']}")
+            timing_profile = "normal"  # Padrão
+            activity_pattern = "balanced"  # Padrão
+            preferred_manufacturer = None
             
-            # 2. Obter cliente WAHA específico do container do usuário
-            waha_client = await self._get_waha_client_for_user(str(user.id))
-            
-            # 3. Criar sessão no WAHA Plus (nome único por chip)
-            session_name = f"chip_{chip.id}"
+            if user.plan:
+                # Enterprise: perfil mais rápido e ativo
+                if user.plan.tier == PlanTier.ENTERPRISE:
+                    timing_profile = "fast"
+                    activity_pattern = "corporate"
+                    preferred_manufacturer = "Samsung"  # Devices mais comuns em corporativo
+                # Business: balanceado
+                elif user.plan.tier == PlanTier.BUSINESS:
+                    timing_profile = "normal"
+                    activity_pattern = "balanced"
+                # Starter/Free: mais conservador
+                else:
+                    timing_profile = "casual"
+                    activity_pattern = "casual"
             
             logger.info(
-                f"Criando sessão WAHA Plus - User: {user.id}, "
-                f"Chip: {chip.id}, Alias: {payload.alias}, "
-                f"Proxy: {'Sim' if proxy_url else 'Não'}, "
-                f"Container: {container['container_name']}"
+                f"Criando sessão WAHA - User: {user.id}, "
+                f"Alias: {payload.alias}, Proxy: {'Sim' if proxy_url else 'Não'}"
             )
             
-            # Criar sessão com proxy
-            from .waha_client import WAHAClient
-            
-            waha_response = await waha_client.create_session(
-                alias=session_name,
-                name=session_name,
+            waha_response = await self.waha.create_session(
+                alias=f"{user.id}_{payload.alias}_{chip.id}",  # Identificador único
                 proxy_url=proxy_url,
                 tenant_id=str(user.id),
                 user_id=str(user.id),
+                # WAHA não usa os parâmetros de anti-block do Baileys
+                # mas mantemos para compatibilidade futura
             )
             
-            # Sessão já inicia automaticamente no create_session
-            session_id = session_name  # WAHA Plus usa nome da sessão como ID
+            session_id = waha_response.get("session_id") or waha_response.get("sessionId")
+            if not session_id:
+                raise ValueError("Resposta do WAHA sem session_id.")
                 
             # Logar informações da sessão WAHA
-            logger.info(
-                f"Sessão WAHA Plus criada e iniciada: {session_id} | "
-                f"Status: {waha_response.get('status')} | "
-                f"Container: {container['container_name']}"
-            )
-            
-            chip.extra_data["waha_plus_container"] = container['container_name']
-            chip.extra_data["waha_plus_port"] = container['port']
-            chip.extra_data["waha_session"] = session_name
+            logger.info(f"Sessão WAHA criada: {session_id} | Status: {waha_response.get('status')}")
+            chip.extra_data["waha_session"] = session_id
             chip.extra_data["waha_status"] = waha_response.get("status")
-            chip.extra_data["proxy_enabled"] = bool(proxy_url)
+            chip.extra_data["proxy_enabled"] = waha_response.get("proxy_enabled", False)
                 
         except Exception as exc:  # noqa: BLE001
             logger.error(
@@ -212,56 +200,58 @@ class ChipService:
 
     async def get_qr_code(self, user: User, chip_id: UUID) -> ChipQrResponse:
         chip = await self._get_user_chip(user, chip_id)
+        data = await self.waha.get_qr_code(chip.session_id)
         
-        # Obter cliente WAHA do container do usuário
-        waha_client = await self._get_waha_client_for_user(str(user.id))
-        
-        # session_id = chip_{chip_id}
-        session_name = chip.extra_data.get("waha_session", f"chip_{chip.id}")
-        
-        data = await waha_client.get_qr_code(session_name)
-        
-        # WAHA Plus retorna QR code diretamente como base64 PNG
-        qr_data = data.get("qr_code")
-        expires_at = None  # WAHA Plus não fornece expiração explícita
-        
-        logger.info(
-            f"QR Code obtido para chip {chip_id} | "
-            f"Container: {chip.extra_data.get('waha_plus_container')} | "
-            f"Status: {data.get('status')}"
-        )
+        # WAHA pode retornar QR code diretamente ou indicar que está nos logs
+        if data.get("qr_available_in_logs"):
+            # QR Code está nos logs do Docker, vamos indicar isso
+            qr_data = None
+            expires_at = None
+            logger.info(f"QR Code para chip {chip_id} disponível nos logs do WAHA")
+        else:
+            expires_raw = data.get("expires_at") or data.get("expiresAt")
+            expires_at = None
+            if isinstance(expires_raw, str):
+                try:
+                    expires_at = datetime.fromisoformat(expires_raw)
+                except ValueError:
+                    expires_at = None
+            # WAHA pode retornar 'qr_code' ou 'qr'
+            qr_data = data.get("qr") or data.get("qr_code")
         
         return ChipQrResponse(qr=qr_data, expires_at=expires_at)
 
     async def delete_chip(self, user: User, chip_id: UUID) -> None:
         """
-        Deleta um chip e sua sessão WAHA Plus.
+        Deleta um chip e sua sessão WAHA.
         
         Fluxo correto:
         1. Se chip está conectado, desconecta primeiro
         2. Libera proxy (IP fica disponível)
-        3. Deleta sessão do WAHA Plus
-        4. Deleta registro do banco de dados
+        3. Deleta sessão do WAHA
+        4. Deleta arquivos de sessão do disco
+        5. Deleta registro do banco de dados
         """
         chip = await self._get_user_chip(user, chip_id)
         
-        # Obter cliente WAHA do container do usuário
-        try:
-            waha_client = await self._get_waha_client_for_user(str(user.id))
-            session_name = chip.extra_data.get("waha_session", f"chip_{chip.id}")
-            
-            # Deletar sessão do WAHA Plus
-            await waha_client.delete_session(session_name)
-            logger.info(
-                f"Sessão WAHA Plus deletada: {session_name} | "
-                f"Container: {chip.extra_data.get('waha_plus_container')}"
-            )
-        except Exception as e:
-            logger.warning(f"Erro ao deletar sessão WAHA {chip.session_id}: {e}")
+        # Se chip está conectado, desconectar primeiro
+        if chip.status == ChipStatus.CONNECTED:
+            try:
+                # WAHA delete_session já para e remove a sessão
+                await self.waha.delete_session(chip.session_id)
+            except Exception as e:
+                logger.warning(f"Erro ao desconectar sessão WAHA: {e}")
         
         # ✅ LIBERAR PROXY antes de deletar
         proxy_service = ProxyService(self.session)
         await proxy_service.release_proxy_from_chip(chip.id)
+        
+        # Deletar sessão do WAHA (remove do cache e desconecta)
+        try:
+            await self.waha.delete_session(chip.session_id)
+        except Exception as e:
+            # Se sessão já foi deletada ou nunca existiu, continuar
+            logger.warning(f"Erro ao deletar sessão WAHA {chip.session_id}: {e}")
         
         # Deletar do banco de dados (cascade vai remover assignment)
         await self.session.delete(chip)
@@ -276,21 +266,8 @@ class ChipService:
         ip_address: str | None = None,
     ) -> ChipResponse:
         chip = await self._get_user_chip(user, chip_id)
-        
-        # Obter cliente WAHA do container do usuário
-        try:
-            waha_client = await self._get_waha_client_for_user(str(user.id))
-            session_name = chip.extra_data.get("waha_session", f"chip_{chip.id}")
-            
-            # Parar sessão no WAHA Plus
-            await waha_client.stop_session(session_name)
-            logger.info(
-                f"Sessão WAHA Plus parada: {session_name} | "
-                f"Container: {chip.extra_data.get('waha_plus_container')}"
-            )
-        except Exception as e:
-            logger.warning(f"Erro ao parar sessão WAHA {chip.session_id}: {e}")
-        
+        # WAHA delete_session para e remove a sessão
+        await self.waha.delete_session(chip.session_id)
         chip.status = ChipStatus.DISCONNECTED
         
         # ✅ LIBERAR PROXY - IP fica disponível para outro chip
@@ -395,42 +372,6 @@ class ChipService:
             stages=stage_models,
             recommended_total_hours=recommended_total,
         )
-
-    async def _get_waha_client_for_user(self, user_id: str) -> WAHAClient:
-        """
-        Obtém ou cria cliente WAHA específico para o container do usuário.
-        
-        Args:
-            user_id: ID do usuário
-            
-        Returns:
-            WAHAClient: Cliente configurado para o container do usuário
-        """
-        # Cache para evitar recriar cliente
-        if user_id in self.waha_client_cache:
-            return self.waha_client_cache[user_id]
-        
-        # Obter informações do container
-        container = await self.container_manager.get_user_container(user_id)
-        
-        if not container:
-            raise RuntimeError(f"Container WAHA Plus não encontrado para user {user_id}")
-        
-        # Criar cliente específico para este container
-        waha_client = WAHAClient(
-            base_url=container["base_url"],
-            api_key=container["api_key"]
-        )
-        
-        # Cachear
-        self.waha_client_cache[user_id] = waha_client
-        
-        logger.info(
-            f"Cliente WAHA criado para user {user_id}: "
-            f"{container['base_url']} (Container: {container['container_name']})"
-        )
-        
-        return waha_client
 
     async def _get_user_chip(self, user: User, chip_id: UUID) -> Chip:
         chip = await self.session.get(Chip, chip_id)

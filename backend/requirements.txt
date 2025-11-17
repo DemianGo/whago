@@ -89,5 +89,4 @@ asyncpg
 psycopg2-binary
 asyncpg
 asyncpg
-asyncpg
-asyncpg
+docker>=7.0.0
