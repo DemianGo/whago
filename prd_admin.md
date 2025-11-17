@@ -231,6 +231,147 @@ Painel administrativo para gerenciar operações internas do WHAGO: usuários, p
 
 ---
 
+## 7. GERENCIAMENTO DE PROXIES
+
+### 7.1 Visão Geral
+Sistema de proxies residenciais para proteger IPs dos chips e evitar banimentos do WhatsApp. Custos configuráveis e contabilizados por usuário.
+
+### 7.2 Provedores de Proxy
+**Lista de Provedores:**
+- Nome | Tipo | Custo/GB | Status | Ações
+
+**Criar/Editar Provedor:**
+- Nome (ex: "Smartproxy BR")
+- Tipo: Residencial / Datacenter / Mobile
+- Custo por GB (R$): configurável
+- Credenciais:
+  - URL do servidor (ex: `proxy.smartproxy.net`)
+  - Porta (ex: `3120`)
+  - Username
+  - Password
+  - API Key (para extração de IPs)
+- Região padrão (BR, US, etc)
+- Status: Ativo/Inativo
+
+**Ações:**
+- Testar conexão
+- Ver uso total (GB)
+- Ver custo acumulado
+- Desativar/reativar
+
+### 7.3 Pool de Proxies
+**Lista de Proxies Ativos:**
+- ID | Provedor | IP/URL | Região | Status | Health | Uso (GB) | Última Uso
+
+**Tipos de Proxy:**
+1. **Rotativo (Recomendado):** 
+   - Mesmo endpoint, IP muda automaticamente
+   - Sticky session: IP fixo por chip
+   - Ex: `http://user-session-{chipId}:pass@proxy.smartproxy.net:3120`
+
+2. **Pool Estático:**
+   - Lista de IPs fixos extraídos via API
+   - Rotação manual ou automática
+
+**Cadastro Manual:**
+- Provedor
+- Proxy URL completa
+- Região
+- Protocolo (HTTP/HTTPS/SOCKS5)
+
+**Extração via API:**
+- Selecionar provedor com API configurada
+- Quantidade de IPs
+- Região
+- Tempo de vida (minutos)
+- Sistema extrai e cadastra automaticamente
+
+### 7.4 Configurações de Uso
+**Limites por Plano:**
+- FREE: X GB/mês (configurável)
+- BUSINESS: Y GB/mês
+- ENTERPRISE: Z GB/mês
+
+**Estratégias de Rotação:**
+- Round-robin
+- Health-based (prioriza proxies saudáveis)
+- Geographic (chip BR usa proxy BR)
+- Sticky session (chip fixo em proxy)
+
+**Health Check:**
+- Ping automático a cada X minutos
+- Score de saúde (0-100)
+- Desativar automaticamente se score < 30
+
+### 7.5 Monitoramento de Uso
+**Dashboard de Proxies:**
+- Total de GB usado (hoje/mês)
+- Custo total (hoje/mês)
+- Uso por usuário (top 10)
+- Uso por provedor
+- Gráfico de consumo (últimos 30 dias)
+
+**Logs de Uso:**
+- Data/Hora | Usuário | Chip | Proxy | Bytes | Custo | Duração
+
+**Alertas:**
+- Usuário atingiu 90% do limite
+- Proxy com health baixo
+- Custo mensal acima do esperado
+- Proxy inativo há X horas
+
+### 7.6 Contabilização de Custos
+**Regras:**
+- Sistema coleta uso via API do provedor a cada 5 minutos
+- Calcula custo: `(bytes / 1GB) * custo_por_gb`
+- Registra em `proxy_usage_logs`
+- Agrega em `user_proxy_costs` (mensal)
+
+**Cobrança Extra (opcional):**
+- Se usuário exceder limite do plano
+- Pacotes avulsos de GB:
+  - 1 GB = R$ X
+  - 5 GB = R$ Y (desconto)
+  - 10 GB = R$ Z (desconto)
+
+**Transparência:**
+- Usuário vê uso em tempo real no dashboard
+- Notificação quando atingir 80% e 100% do limite
+- Opção de pausar chips automaticamente se exceder
+
+### 7.7 Integração com Chips
+**Atribuição Automática:**
+- Ao conectar chip, sistema atribui proxy automaticamente
+- Critérios: região do chip, health, carga balanceada
+
+**Atribuição Manual:**
+- Admin pode forçar chip específico em proxy específico
+- Útil para testes ou troubleshooting
+
+**Rotação:**
+- Sistema pode trocar proxy de chip automaticamente:
+  - Se proxy cair (health < 30)
+  - Se atingir limite de tempo (ex: 24h)
+  - Se usuário solicitar "trocar proxy"
+
+### 7.8 Relatórios
+**Relatório de Custos:**
+- Custo total por período
+- Custo por usuário
+- Custo por provedor
+- Projeção de gastos
+
+**Relatório de Performance:**
+- Proxies com melhor uptime
+- Proxies com melhor latência
+- Taxa de sucesso de envios por proxy
+
+**Exportação:**
+- CSV/Excel com dados detalhados
+- Filtros por período, usuário, provedor
+
+---
+
 ## 8. RELATÓRIOS
 
 ### 8.1 Financeiro
@@ -311,6 +452,7 @@ Painel administrativo para gerenciar operações internas do WHAGO: usuários, p
 - 💳 Planos
 - 💰 Pagamentos
 - 🔌 Gateways
+- 🌐 Proxies
 - 📱 Chips
 - 📢 Campanhas
 - 📊 Relatórios
@@ -435,12 +577,13 @@ CREATE TABLE admin_audit_logs (
 ## 15. PRIORIZAÇÃO
 
 ### Fase 1 (MVP Admin):
-- [ ] Autenticação admin
-- [ ] Dashboard básico
-- [ ] Lista/detalhe de usuários
-- [ ] Editar planos
-- [ ] Ver transações
-- [ ] Configurar gateways
+- [x] Autenticação admin
+- [x] Dashboard básico
+- [x] Lista/detalhe de usuários
+- [x] Editar planos
+- [x] Ver transações
+- [x] Configurar gateways
+- [x] **CRUD de Proxies** ✅
 
 ### Fase 2:
 - [ ] Relatórios completos

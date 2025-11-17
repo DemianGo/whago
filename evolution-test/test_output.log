@@ -1,0 +1,135 @@
+================================================================================
+🧪 TESTE EVOLUTION API - MÓDULO INDEPENDENTE
+================================================================================
+
+[⏳] Verificando Evolution API: http://localhost:8080
+[✅] Evolution API online: Servidor respondendo
+[⏳] Carregando fingerprint: 
+[✅] Fingerprint selecionado: Samsung Galaxy A34 5G
+[✅] Session ID gerado: evolution_test_9dd489a6
+[✅] Proxy URL construída: gw.dataimpulse.com:824
+[⏳] Validando proxy: Testando conectividade...
+[✅] Proxy validado: IP: 200.159.158.111
+[⏳] Rate limiting: Aguardando 30 segundos...
+[✅] Rate limiting: Delay aplicado
+[⏳] Criando instância: Nome: evolution_test_9dd489a6
+[✅] Instância criada: Hash: FB8D7C5E-8641-450F-ABAD-619A9A0E5E4C
+[⏳] Buscando QR Code: Aguardando geração...
+❌ ERRO: QR Code não gerado após 10 tentativas
+
+🎯 CONCLUSÃO: INCONCLUSIVO: QR Code não gerado, mas sem erro 405
+
+📄 Relatório salvo: test_report.json
+
+🧹 Limpando instância...
+[✅] Instância removida: Limpeza concluída
+📄 Relatório salvo: test_report.json
+
+================================================================================
+📊 RELATÓRIO FINAL
+================================================================================
+{
+  "timestamp": "2025-11-17T14:19:11.547185",
+  "steps": [
+    {
+      "timestamp": "2025-11-17T14:19:11.547211",
+      "step": "Verificando Evolution API",
+      "status": "\u23f3",
+      "details": "http://localhost:8080"
+    },
+    {
+      "timestamp": "2025-11-17T14:19:11.551835",
+      "step": "Evolution API online",
+      "status": "\u2705",
+      "details": "Servidor respondendo"
+    },
+    {
+      "timestamp": "2025-11-17T14:19:11.551862",
+      "step": "Carregando fingerprint",
+      "status": "\u23f3",
+      "details": ""
+    },
+    {
+      "timestamp": "2025-11-17T14:19:11.552087",
+      "step": "Fingerprint selecionado",
+      "status": "\u2705",
+      "details": "Samsung Galaxy A34 5G"
+    },
+    {
+      "timestamp": "2025-11-17T14:19:11.552134",
+      "step": "Session ID gerado",
+      "status": "\u2705",
+      "details": "evolution_test_9dd489a6"
+    },
+    {
+      "timestamp": "2025-11-17T14:19:11.552141",
+      "step": "Proxy URL constru\u00edda",
+      "status": "\u2705",
+      "details": "gw.dataimpulse.com:824"
+    },
+    {
+      "timestamp": "2025-11-17T14:19:11.552145",
+      "step": "Validando proxy",
+      "status": "\u23f3",
+      "details": "Testando conectividade..."
+    },
+    {
+      "timestamp": "2025-11-17T14:19:13.221884",
+      "step": "Proxy validado",
+      "status": "\u2705",
+      "details": "IP: 200.159.158.111"
+    },
+    {
+      "timestamp": "2025-11-17T14:19:13.221919",
+      "step": "Rate limiting",
+      "status": "\u23f3",
+      "details": "Aguardando 30 segundos..."
+    },
+    {
+      "timestamp": "2025-11-17T14:19:43.222022",
+      "step": "Rate limiting",
+      "status": "\u2705",
+      "details": "Delay aplicado"
+    },
+    {
+      "timestamp": "2025-11-17T14:19:43.222097",
+      "step": "Criando inst\u00e2ncia",
+      "status": "\u23f3",
+      "details": "Nome: evolution_test_9dd489a6"
+    },
+    {
+      "timestamp": "2025-11-17T14:19:48.558498",
+      "step": "Inst\u00e2ncia criada",
+      "status": "\u2705",
+      "details": "Hash: FB8D7C5E-8641-450F-ABAD-619A9A0E5E4C"
+    },
+    {
+      "timestamp": "2025-11-17T14:19:48.558719",
+      "step": "Buscando QR Code",
+      "status": "\u23f3",
+      "details": "Aguardando gera\u00e7\u00e3o..."
+    },
+    {
+      "timestamp": "2025-11-17T14:20:18.670232",
+      "step": "Inst\u00e2ncia removida",
+      "status": "\u2705",
+      "details": "Limpeza conclu\u00edda"
+    }
+  ],
+  "metrics": {
+    "proxy_validated": true,
+    "fingerprint_applied": true,
+    "instance_created": true,
+    "qr_generated": false,
+    "error_405_occurred": false,
+    "connection_successful": false,
+    "message_sent": false
+  },
+  "errors": [
+    {
+      "timestamp": "2025-11-17T14:20:18.654129",
+      "error": "QR Code n\u00e3o gerado ap\u00f3s 10 tentativas"
+    }
+  ],
+  "conclusion": "INCONCLUSIVO: QR Code n\u00e3o gerado, mas sem erro 405"
+}

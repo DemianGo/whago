@@ -1,0 +1,188 @@
+{% extends "base_admin.html" %}
+
+{% block content %}
+<div class="p-6" data-page="proxies">
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="text-2xl font-bold text-gray-900">Gerenciamento de Proxies</h1>
+  </div>
+
+  <!-- Tabs -->
+  <div class="mb-6 border-b border-gray-200">
+    <nav class="-mb-px flex space-x-8">
+      <button onclick="switchTab('providers')" id="tab-providers" class="tab-btn active">
+        Provedores
+      </button>
+      <button onclick="switchTab('pool')" id="tab-pool" class="tab-btn">
+        Pool de Proxies
+      </button>
+      <button onclick="switchTab('stats')" id="tab-stats" class="tab-btn">
+        Estatísticas
+      </button>
+    </nav>
+  </div>
+
+  <!-- Tab: Provedores -->
+  <div id="content-providers" class="tab-content">
+    <button onclick="openProviderModal()" class="btn-primary mb-4">+ Novo Provedor</button>
+    
+    <div class="card">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Nome</th>
+            <th>Tipo</th>
+            <th>Região</th>
+            <th>Custo/GB</th>
+            <th>Status</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody id="providers-table">
+          <tr><td colspan="6" class="text-center py-4">Carregando...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Tab: Pool -->
+  <div id="content-pool" class="tab-content hidden">
+    <button onclick="openProxyModal()" class="btn-primary mb-4">+ Adicionar Proxy</button>
+    
+    <div class="card">
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Provedor</th>
+            <th>Tipo</th>
+            <th>Região</th>
+            <th>Health</th>
+            <th>Uso (GB)</th>
+            <th>Status</th>
+            <th>Ações</th>
+          </tr>
+        </thead>
+        <tbody id="proxies-table">
+          <tr><td colspan="7" class="text-center py-4">Carregando...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Tab: Estatísticas -->
+  <div id="content-stats" class="tab-content hidden">
+    <div class="grid grid-cols-4 gap-4 mb-6">
+      <div class="card">
+        <h3 class="text-sm text-gray-600">Hoje</h3>
+        <p class="text-2xl font-bold" id="stats-today">-</p>
+      </div>
+      <div class="card">
+        <h3 class="text-sm text-gray-600">Este Mês (GB)</h3>
+        <p class="text-2xl font-bold" id="stats-month-gb">-</p>
+      </div>
+      <div class="card">
+        <h3 class="text-sm text-gray-600">Custo Mês</h3>
+        <p class="text-2xl font-bold" id="stats-cost">-</p>
+      </div>
+      <div class="card">
+        <h3 class="text-sm text-gray-600">Proxies Ativos</h3>
+        <p class="text-2xl font-bold" id="stats-proxies">-</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 class="font-bold mb-4">Top Usuários</h3>
+      <table class="table">
+        <thead>
+          <tr>
+            <th>Usuário ID</th>
+            <th>GB Usado</th>
+            <th>Custo</th>
+          </tr>
+        </thead>
+        <tbody id="top-users-table"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Modal: Provider -->
+<div id="providerModal" class="modal" style="display:none;">
+  <div class="modal-content">
+    <h2 id="providerModalTitle">Novo Provedor</h2>
+    <form id="providerForm" onsubmit="handleProviderSubmit(event)">
+      <input type="hidden" id="provider_id">
+      
+      <label>Nome *</label>
+      <input type="text" id="provider_name" placeholder="Smartproxy BR" required>
+      
+      <label>Tipo *</label>
+      <select id="provider_type" required>
+        <option value="residential">Residencial</option>
+        <option value="datacenter">Datacenter</option>
+        <option value="mobile">Mobile</option>
+      </select>
+      
+      <label>Região</label>
+      <input type="text" id="provider_region" placeholder="BR" value="BR">
+      
+      <label>Custo por GB (R$) *</label>
+      <input type="number" id="provider_cost" step="0.01" placeholder="25.00" required>
+      
+      <h3 class="font-bold mt-4 mb-2">Credenciais</h3>
+      
+      <label>Servidor *</label>
+      <input type="text" id="cred_server" placeholder="proxy.smartproxy.net" required>
+      
+      <label>Porta *</label>
+      <input type="number" id="cred_port" placeholder="3120" required>
+      
+      <label>Username *</label>
+      <input type="text" id="cred_username" placeholder="smart-whagowhago" required>
+      
+      <label>Password *</label>
+      <input type="password" id="cred_password" required>
+      
+      <label>API Key (opcional)</label>
+      <input type="text" id="cred_api_key" placeholder="Para coleta de estatísticas">
+      
+      <label class="flex items-center mt-4">
+        <input type="checkbox" id="provider_active" checked>
+        <span class="ml-2">Ativo</span>
+      </label>
+      
+      <div class="flex gap-2 mt-4">
+        <button type="submit" class="btn-primary flex-1">Salvar</button>
+        <button type="button" onclick="closeProviderModal()" class="btn-secondary flex-1">Cancelar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<style>
+.tab-btn {
+  padding: 0.75rem 1rem;
+  border-bottom: 2px solid transparent;
+  color: #6b7280;
+  font-weight: 500;
+  cursor: pointer;
+  background: none;
+  border-top: none;
+  border-left: none;
+  border-right: none;
+}
+.tab-btn.active {
+  border-bottom-color: #3b82f6;
+  color: #3b82f6;
+}
+.tab-content {
+  animation: fadeIn 0.3s;
+}
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+</style>
+
+<script src="/static/js/admin_proxies.js"></script>
+{% endblock %}
+

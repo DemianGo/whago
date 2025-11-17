@@ -186,6 +186,14 @@ async def admin_admins_page(request: Request) -> HTMLResponse:
     )
 
 
+@router.get("/admin/proxies", response_class=HTMLResponse)
+async def admin_proxies_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        "admin_proxies.html",
+        {"request": request},
+    )
+
+
 @router.get("/admin/logs", response_class=HTMLResponse)
 async def admin_logs_page(request: Request) -> HTMLResponse:
     return templates.TemplateResponse(

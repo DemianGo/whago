@@ -293,6 +293,50 @@ whago/
 
 ---
 
+## 4.4 Sistema de Proxies Residenciais
+
+### 4.4.1 Objetivo
+Proteger IPs dos chips WhatsApp usando proxies residenciais para evitar banimentos e aumentar segurança. Sistema contabiliza tráfego por usuário e cobra conforme plano.
+
+### 4.4.2 Funcionamento
+**Para o Usuário (Transparente):**
+- Chip conecta automaticamente via proxy
+- Dashboard mostra: "Uso de Proxy: 45 MB / 500 MB este mês"
+- Alertas quando atingir 80% e 100% do limite
+- Opção de comprar GB adicional se exceder
+
+**Limites por Plano:**
+- **FREE**: 100 MB/mês (suficiente para ~500 mensagens texto)
+- **BUSINESS**: 1 GB/mês (suficiente para ~5.000 mensagens + mídias leves)
+- **ENTERPRISE**: 5 GB/mês (suficiente para ~20.000 mensagens + mídias)
+
+**Pacotes Adicionais (se exceder):**
+- 500 MB = R$ 15,00
+- 1 GB = R$ 25,00
+- 5 GB = R$ 100,00 (desconto de 20%)
+
+### 4.4.3 Tecnologia
+- **Provedor**: Smartproxy (residencial brasileiro)
+- **Rotação**: Sticky session (mesmo IP por chip durante sessão)
+- **Protocolo**: HTTP/HTTPS
+- **Endpoint**: `proxy.smartproxy.net:3120`
+- **Região**: Brasil (menor latência)
+
+### 4.4.4 Contabilização
+- Sistema monitora tráfego via API Smartproxy a cada 5 minutos
+- Registra consumo por chip/usuário
+- Calcula custo baseado em R$/GB configurável na admin
+- Agregação mensal por usuário
+- Bloqueia envios se exceder limite (com opção de compra)
+
+### 4.4.5 Segurança
+- Credenciais de proxy nunca expostas ao usuário
+- Cada chip usa session ID único
+- Logs auditados de uso
+- Health check automático dos proxies
+
+---
+
 ## 5. GERENCIAMENTO DE CHIPS
 
 ### 5.1 Conexão de Chips
@@ -300,12 +344,13 @@ whago/
 **Processo de Conexão:**
 1. Usuário clica em "Adicionar Chip"
 2. Sistema verifica limite do plano
-3. Se dentro do limite, gera nova sessão no Baileys
-4. QR Code é exibido em tempo real via WebSocket
-5. QR Code atualiza automaticamente a cada 60 segundos
-6. Usuário escaneia QR Code com WhatsApp
-7. Após autenticação, chip fica "Conectado"
-8. Sistema salva credenciais de sessão criptografadas
+3. Sistema atribui proxy residencial automaticamente ao chip
+4. Se dentro do limite, gera nova sessão no Baileys (via proxy)
+5. QR Code é exibido em tempo real via WebSocket
+6. QR Code atualiza automaticamente a cada 60 segundos
+7. Usuário escaneia QR Code com WhatsApp
+8. Após autenticação, chip fica "Conectado" (via proxy)
+9. Sistema salva credenciais de sessão criptografadas + proxy atribuído
 
 **Estados do Chip:**
 - **Aguardando QR** (amarelo): aguardando escaneamento
@@ -320,10 +365,12 @@ whago/
 - Apelido (editável pelo usuário, ex: "Chip Vendas", "Chip Suporte")
 - Número do WhatsApp (exibido após conexão)
 - Status atual
+- Proxy utilizado (região + health score)
 - Data/hora da conexão
 - Mensagens enviadas hoje
 - Mensagens enviadas no mês
 - Taxa de sucesso (%)
+- Tráfego proxy consumido (MB)
 - Tempo de maturação (se aplicável)
 - Histórico de eventos (últimas 50 ações)
 

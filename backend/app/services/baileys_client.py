@@ -58,8 +58,43 @@ class BaileysClient:
             return response.json()
         return None
 
-    async def create_session(self, alias: str) -> dict[str, Any]:
+    async def create_session(
+        self, 
+        alias: str, 
+        proxy_url: str | None = None,
+        tenant_id: str | None = None,
+        user_id: str | None = None,
+        preferred_manufacturer: str | None = None,
+        timing_profile: str | None = None,
+        activity_pattern: str | None = None
+    ) -> dict[str, Any]:
+        """
+        Cria uma sessão Baileys com suporte completo ao Sistema Anti-Block.
+        
+        Args:
+            alias: Nome/alias da sessão
+            proxy_url: URL do proxy (opcional)
+            tenant_id: ID do tenant para isolamento multi-tenant
+            user_id: ID do usuário
+            preferred_manufacturer: Fabricante preferido para fingerprint (Samsung, Motorola, Xiaomi, etc)
+            timing_profile: Perfil de timing (very_slow, slow, normal, fast, very_fast, corporate, casual, distracted)
+            activity_pattern: Padrão de atividade (corporate, night_owl, early_bird, balanced, casual, always_on)
+        """
         payload = {"alias": alias}
+        
+        if proxy_url:
+            payload["proxy_url"] = proxy_url
+        if tenant_id:
+            payload["tenant_id"] = tenant_id
+        if user_id:
+            payload["user_id"] = user_id
+        if preferred_manufacturer:
+            payload["preferred_manufacturer"] = preferred_manufacturer
+        if timing_profile:
+            payload["timing_profile"] = timing_profile
+        if activity_pattern:
+            payload["activity_pattern"] = activity_pattern
+            
         return await self._request("POST", "/sessions/create", json=payload)
 
     async def delete_session(self, session_id: str) -> None:

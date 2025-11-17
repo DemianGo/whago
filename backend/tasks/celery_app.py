@@ -12,11 +12,12 @@ from app.config import settings
 
 os.environ.setdefault("FORKED_BY_MULTIPROCESSING", "1")
 
-celery_app = Celery(
+app = Celery(
     "whago",
     broker=settings.celery_broker_url,
     backend=settings.celery_result_backend,
 )
+celery_app = app  # Alias para compatibilidade
 
 celery_app.conf.update(
     task_default_queue=settings.celery_task_default_queue,
@@ -35,11 +36,23 @@ celery_app.conf.update(
         "process-subscription-billing-hourly": {
             "task": "billing.process_subscription_cycle",
             "schedule": 3600.0,
-        }
+        },
+        "monitor-proxy-usage": {
+            "task": "monitor_proxy_usage",
+            "schedule": 300.0,  # A cada 5 minutos
+        },
+        "health-check-proxies": {
+            "task": "health_check_proxies",
+            "schedule": 900.0,  # A cada 15 minutos
+        },
+        "cleanup-stale-chips": {
+            "task": "cleanup_stale_chips",
+            "schedule": 300.0,  # A cada 5 minutos
+        },
     },
 )
 
-celery_app.autodiscover_tasks(packages=("tasks.campaign_tasks", "tasks.billing_tasks"))
+celery_app.autodiscover_tasks(packages=("tasks.campaign_tasks", "tasks.billing_tasks", "tasks.proxy_monitor_tasks", "tasks.cleanup_tasks"))
 
 
 __all__ = ("celery_app",)

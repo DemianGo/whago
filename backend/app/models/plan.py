@@ -45,6 +45,7 @@ class Plan(Base):
     price: Mapped[Numeric] = mapped_column(Numeric(10, 2), nullable=False, default=0)
     max_chips: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     monthly_messages: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    proxy_gb_limit: Mapped[Numeric] = mapped_column(Numeric(10, 2), nullable=False, default=0.1)  # GB/mês
     features: Mapped[Dict[str, Any]] = mapped_column(
         JSONB, nullable=False, default=dict
     )

@@ -1,0 +1,130 @@
+🚀 Criando instância: whatsapp_test_1763400285
+
+📦 Resposta da criação:
+{
+  "instance": {
+    "instanceName": "whatsapp_test_1763400285",
+    "instanceId": "87a7730c-2794-4f13-a3da-593f42223bfb",
+    "integration": "WHATSAPP-BAILEYS",
+    "webhookWaBusiness": null,
+    "accessTokenWaBusiness": "",
+    "status": "connecting"
+  },
+  "hash": "test-token-1763400285",
+  "webhook": {},
+  "websocket": {},
+  "rabbitmq": {},
+  "sqs": {},
+  "settings": {
+    "rejectCall": false,
+    "msgCall": "",
+    "groupsIgnore": false,
+    "alwaysOnline": false,
+    "readMessages": false,
+    "readStatus": false,
+    "syncFullHistory": false
+  },
+  "qrcode": {
+    "count": 0
+  }
+}
+
+✅ Instância criada: 87a7730c-2794-4f13-a3da-593f42223bfb
+
+🔍 Buscando QR Code...
+Tentativa 1/20...
+Resposta: {"count":0}
+Tentativa 2/20...
+Resposta: {"count":0}
+Tentativa 3/20...
+Resposta: {"count":0}
+Tentativa 4/20...
+Resposta: {"count":0}
+Tentativa 5/20...
+Resposta: {"count":0}
+Tentativa 6/20...
+Resposta: {"count":0}
+Tentativa 7/20...
+Resposta: {"count":0}
+Tentativa 8/20...
+Resposta: {"count":0}
+Tentativa 9/20...
+Resposta: {"count":0}
+Tentativa 10/20...
+Resposta: {"count":0}
+Tentativa 11/20...
+Resposta: {"count":0}
+Tentativa 12/20...
+Resposta: {"count":0}
+Tentativa 13/20...
+Resposta: {"count":0}
+Tentativa 14/20...
+Resposta: {"count":0}
+Tentativa 15/20...
+Resposta: {"count":0}
+Tentativa 16/20...
+Resposta: {"count":0}
+Tentativa 17/20...
+Resposta: {"count":0}
+Tentativa 18/20...
+Resposta: {"count":0}
+Tentativa 19/20...
+Resposta: {"count":0}
+Tentativa 20/20...
+Resposta: {"count":0}
+
+⚠️ QR Code não gerado após 60 segundos
+
+📊 Status da instância:
+[
+  {
+    "id": "87a7730c-2794-4f13-a3da-593f42223bfb",
+    "name": "whatsapp_test_1763400285",
+    "connectionStatus": "close",
+    "ownerJid": null,
+    "profileName": null,
+    "profilePicUrl": null,
+    "integration": "WHATSAPP-BAILEYS",
+    "number": null,
+    "businessId": null,
+    "token": "test-token-1763400285",
+    "clientName": "evolution_test",
+    "disconnectionReasonCode": null,
+    "disconnectionObject": null,
+    "disconnectionAt": null,
+    "createdAt": "2025-11-17T17:24:45.223Z",
+    "updatedAt": "2025-11-17T17:24:45.223Z",
+    "Chatwoot": null,
+    "Proxy": null,
+    "Rabbitmq": null,
+    "Sqs": null,
+    "Websocket": null,
+    "Setting": {
+      "id": "cmi3f008e00019b3zsobhasaa",
+      "rejectCall": false,
+      "msgCall": "",
+      "groupsIgnore": false,
+      "alwaysOnline": false,
+      "readMessages": false,
+      "readStatus": false,
+      "syncFullHistory": false,
+      "createdAt": "2025-11-17T17:24:45.230Z",
+      "updatedAt": "2025-11-17T17:24:45.230Z",
+      "instanceId": "87a7730c-2794-4f13-a3da-593f42223bfb"
+    },
+    "_count": {
+      "Message": 0,
+      "Contact": 0,
+      "Chat": 0
+    }
+  }
+]
+
+🧹 Limpando instância...
+{
+  "status": "SUCCESS",
+  "error": false,
+  "response": {
+    "message": "Instance deleted"
+  }
+}

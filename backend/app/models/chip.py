@@ -87,6 +87,11 @@ class Chip(Base):
         back_populates="chip",
         cascade="all, delete-orphan",
     )
+    proxy_assignment: Mapped["ChipProxyAssignment"] = relationship(
+        "ChipProxyAssignment",
+        back_populates="chip",
+        uselist=False,
+    )
 
 
 class ChipEventType(str, enum.Enum):

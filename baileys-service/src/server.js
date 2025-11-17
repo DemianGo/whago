@@ -194,7 +194,7 @@ const createServer = (config = {}) => {
   });
 
   router.post("/sessions/create", async (req, res) => {
-    const { alias } = req.body || {};
+    const { alias, proxy_url } = req.body || {};
     if (!alias || typeof alias !== "string") {
       return res.status(400).json({ error: "Alias inválido." });
     }
@@ -257,7 +257,8 @@ const createServer = (config = {}) => {
         // Handler de mensagens (sempre retornar undefined)
         getMessage: async () => undefined,
         
-        // Não especificar browser - usar padrão do Baileys (Chrome)
+        // ✅ Browser configuration (simular Chrome no Windows)
+        browser: Browsers.windows('Chrome'),
         
         // Configurações de socket
         socketConfig: {
@@ -272,16 +273,33 @@ const createServer = (config = {}) => {
         patchMessageBeforeSending: (msg) => msg,
       };
       
-      // ===== INTEGRAÇÃO COM PROXY (MODULAR) =====
-      // Se proxy estiver habilitado, adicionar agent ao socketConfig
-      const proxyAgent = proxyManager.getAgent();
-      if (proxyAgent) {
-        console.log(`[Session ${sessionId}] 🌐 Proxy habilitado:`, proxyManager.getInfo().url);
-        socketConfig.agent = proxyAgent;
+      // ===== INTEGRAÇÃO COM PROXY =====
+      // Prioridade: proxy_url do request > proxy global
+      let proxyAgent = null;
+      
+      if (proxy_url) {
+        // Proxy específico para este chip (sticky session)
+        const proxyHost = proxy_url.split('@')[1] || 'unknown';
+        const proxyUser = proxy_url.split('://')[1]?.split(':')[0] || 'unknown';
+        console.log(`[Session ${sessionId}] 🌐 Proxy: ${proxyUser}@${proxyHost}`);
+        const { HttpsProxyAgent } = require('https-proxy-agent');
+        proxyAgent = new HttpsProxyAgent(proxy_url);
+        console.log(`[Session ${sessionId}] ✅ HttpsProxyAgent criado`);
+      } else if (proxyManager.getAgent()) {
+        // Proxy global (fallback)
+        console.log(`[Session ${sessionId}] 🌐 Usando proxy global`);
+        proxyAgent = proxyManager.getAgent();
       } else {
-        console.log(`[Session ${sessionId}] 🔓 Proxy desabilitado, conexão direta`);
+        console.log(`[Session ${sessionId}] 🔓 Sem proxy, conexão direta`);
       }
-      // =========================================
+      
+      if (proxyAgent) {
+        socketConfig.agent = proxyAgent;
+        console.log(`[Session ${sessionId}] 🔒 Proxy agent aplicado ao socketConfig`);
+      } else {
+        console.log(`[Session ${sessionId}] ⚠️  ATENÇÃO: Nenhum proxy sendo usado!`);
+      }
+      // ================================
       
       const sock = makeWASocket(socketConfig);
       

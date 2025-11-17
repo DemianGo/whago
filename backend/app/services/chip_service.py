@@ -18,6 +18,8 @@ from ..models.plan import Plan, PlanTier
 from ..models.user import User
 from .notification_service import NotificationService, NotificationType
 from .audit_service import AuditService
+from .proxy_service import ProxyService
+from ..middleware.proxy_limit_middleware import check_proxy_quota
 from ..schemas.chip import (
     ChipCreate,
     ChipEventResponse,
@@ -68,15 +70,91 @@ class ChipService:
     ) -> ChipResponse:
         await self._ensure_alias_unique(user, payload.alias)
         await self._enforce_plan_limits(user)
+        
+        # ✅ NOVO: Verificar quota de proxy
+        await check_proxy_quota(user, self.session)
 
         fallback = False
         session_id: str | None = None
+        proxy_url: str | None = None
 
+        # ✅ NOVO: Criar chip primeiro para ter ID
+        chip = Chip(
+            user_id=user.id,
+            alias=payload.alias,
+            session_id=f"temp-{uuid4()}",  # Temporário
+            status=ChipStatus.WAITING_QR,
+            extra_data={
+                "created_via": "api",
+                "user_agent": user_agent,
+                "ip": ip_address,
+                "baileys_fallback": False,
+            },
+        )
+        self.session.add(chip)
+        await self.session.flush()
+
+        # ✅ NOVO: Atribuir proxy ao chip (sticky session com chip.id)
         try:
-            baileys_response = await self.baileys.create_session(payload.alias)
+            proxy_service = ProxyService(self.session)
+            proxy_url = await proxy_service.assign_proxy_to_chip(chip)
+            logger.info(f"Proxy atribuído ao chip {chip.id}: {proxy_url.split('@')[1] if '@' in proxy_url else 'mascarado'}")
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(f"Falha ao atribuir proxy ao chip {chip.id}: {exc}. Continuando sem proxy.")
+            proxy_url = None
+
+        # ✅ CRIAR SESSÃO COM SISTEMA ANTI-BLOCK
+        try:
+            # Determinar perfis baseado no plano do usuário
+            await self.session.refresh(user, attribute_names=["plan"])
+            
+            timing_profile = "normal"  # Padrão
+            activity_pattern = "balanced"  # Padrão
+            preferred_manufacturer = None
+            
+            if user.plan:
+                # Enterprise: perfil mais rápido e ativo
+                if user.plan.tier == PlanTier.ENTERPRISE:
+                    timing_profile = "fast"
+                    activity_pattern = "corporate"
+                    preferred_manufacturer = "Samsung"  # Devices mais comuns em corporativo
+                # Business: balanceado
+                elif user.plan.tier == PlanTier.BUSINESS:
+                    timing_profile = "normal"
+                    activity_pattern = "balanced"
+                # Starter/Free: mais conservador
+                else:
+                    timing_profile = "casual"
+                    activity_pattern = "casual"
+            
+            logger.info(
+                f"Criando sessão com Anti-Block - Tenant: {user.id}, "
+                f"Timing: {timing_profile}, Pattern: {activity_pattern}"
+            )
+            
+            baileys_response = await self.baileys.create_session(
+                alias=payload.alias,
+                proxy_url=proxy_url,
+                tenant_id=str(user.id),
+                user_id=str(user.id),
+                preferred_manufacturer=preferred_manufacturer,
+                timing_profile=timing_profile,
+                activity_pattern=activity_pattern
+            )
+            
             session_id = baileys_response.get("session_id") or baileys_response.get("sessionId")
             if not session_id:
                 raise ValueError("Resposta do Baileys sem session_id.")
+                
+            # Logar informações do anti-block
+            if "anti_block" in baileys_response:
+                logger.info(f"Anti-Block aplicado: {baileys_response['anti_block']}")
+                chip.extra_data["anti_block"] = baileys_response["anti_block"]
+            
+            if "fingerprint" in baileys_response:
+                logger.info(f"Fingerprint: {baileys_response['fingerprint']}")
+                chip.extra_data["fingerprint"] = baileys_response["fingerprint"]
+                
         except Exception as exc:  # noqa: BLE001
             logger.error(
                 "Falha ao criar sessão no Baileys para alias %s: %s. Aplicando fallback local.",
@@ -86,19 +164,10 @@ class ChipService:
             fallback = True
             session_id = f"fallback-{uuid4()}"
 
-        chip = Chip(
-            user_id=user.id,
-            alias=payload.alias,
-            session_id=session_id,
-            status=ChipStatus.WAITING_QR,
-            extra_data={
-                "created_via": "api",
-                "user_agent": user_agent,
-                "ip": ip_address,
-                "baileys_fallback": fallback,
-            },
-        )
-        self.session.add(chip)
+        # Atualizar chip com session_id real
+        chip.session_id = session_id
+        chip.extra_data["baileys_fallback"] = fallback
+        chip.extra_data["proxy_used"] = proxy_url is not None
         await self.session.flush()
 
         await self._add_event(
@@ -153,9 +222,10 @@ class ChipService:
         
         Fluxo correto:
         1. Se chip está conectado, desconecta primeiro
-        2. Deleta sessão do Baileys
-        3. Deleta arquivos de sessão do disco
-        4. Deleta registro do banco de dados
+        2. Libera proxy (IP fica disponível)
+        3. Deleta sessão do Baileys
+        4. Deleta arquivos de sessão do disco
+        5. Deleta registro do banco de dados
         """
         chip = await self._get_user_chip(user, chip_id)
         
@@ -168,6 +238,10 @@ class ChipService:
                 if e.status_code != 404:
                     raise
         
+        # ✅ LIBERAR PROXY antes de deletar
+        proxy_service = ProxyService(self.session)
+        await proxy_service.release_proxy_from_chip(chip.id)
+        
         # Deletar sessão do Baileys (remove do cache e desconecta)
         try:
             await self.baileys.delete_session(chip.session_id)
@@ -176,7 +250,7 @@ class ChipService:
             if e.status_code != 404:
                 raise
         
-        # Deletar do banco de dados
+        # Deletar do banco de dados (cascade vai remover assignment)
         await self.session.delete(chip)
         await self.session.commit()
 
@@ -191,6 +265,11 @@ class ChipService:
         chip = await self._get_user_chip(user, chip_id)
         await self.baileys.disconnect_session(chip.session_id)
         chip.status = ChipStatus.DISCONNECTED
+        
+        # ✅ LIBERAR PROXY - IP fica disponível para outro chip
+        proxy_service = ProxyService(self.session)
+        await proxy_service.release_proxy_from_chip(chip.id)
+        
         await self._add_event(
             chip,
             ChipEventType.STATUS_CHANGE,

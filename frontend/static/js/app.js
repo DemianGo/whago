@@ -711,6 +711,58 @@ async function loadDashboard() {
   }
 }
 
+async function loadProxyUsage() {
+  try {
+    const response = await apiFetch("/user/proxy/usage");
+    if (response?.ok) {
+      const data = await response.json();
+      
+      // Atualizar texto do limite
+      const limitText = document.getElementById("proxy-limit-text");
+      if (limitText) {
+        limitText.textContent = `${data.gb_used} / ${parseFloat(data.limit_gb)} GB`;
+      }
+      
+      // Atualizar barra de progresso
+      const progressBar = document.getElementById("proxy-progress-bar");
+      if (progressBar) {
+        const percentage = Math.min(data.percentage_used, 100);
+        progressBar.style.width = `${percentage}%`;
+        
+        // Mudar cor baseado no uso
+        progressBar.classList.remove('bg-blue-500', 'bg-yellow-500', 'bg-red-500');
+        if (percentage >= 90) {
+          progressBar.classList.add('bg-red-500');
+        } else if (percentage >= 70) {
+          progressBar.classList.add('bg-yellow-500');
+        } else {
+          progressBar.classList.add('bg-blue-500');
+        }
+      }
+      
+      // Atualizar hint com custo
+      const hint = document.getElementById("proxy-usage-hint");
+      if (hint) {
+        let message = `Proteção via proxy residencial. Custo: R$ ${parseFloat(data.cost).toFixed(2)}`;
+        if (data.percentage_used >= 90) {
+          message = `⚠️ Você está próximo do limite (${data.percentage_used.toFixed(1)}%)!`;
+        } else if (data.percentage_used >= 100) {
+          message = `🚫 Limite excedido! Faça upgrade ou aguarde dia 1.`;
+        }
+        hint.textContent = message;
+      }
+      
+      // Ocultar card se não houver limite configurado
+      if (parseFloat(data.limit_gb) <= 0) {
+        const card = document.getElementById("proxy-usage-card");
+        if (card) card.style.display = 'none';
+      }
+    }
+  } catch (error) {
+    console.error('Erro ao carregar uso de proxy:', error);
+  }
+}
+
 function formatChipStatus(status) {
   if (!status) return "--";
   const key = String(status).toUpperCase();
@@ -1894,6 +1946,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
     if (currentPage === "dashboard") {
       await loadDashboard();
+      await loadProxyUsage();
     }
     if (currentPage === "chips") {
       await initChipsPage();

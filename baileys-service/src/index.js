@@ -11,7 +11,8 @@ require("dotenv").config();
 
 const path = require("path");
 
-const { createServer } = require("./server");
+// ✅ USANDO SERVER-INTEGRATED COM FINGERPRINTS AVANÇADOS
+const { createServer } = require("./server-integrated");
 
 const PORT = Number(process.env.WHAGO_BAILEYS_PORT || process.env.PORT || 3030);
 const HOST = process.env.WHAGO_BAILEYS_HOST || "0.0.0.0";
