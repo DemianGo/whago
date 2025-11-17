@@ -75,10 +75,10 @@ class ProxyService:
             raise ValueError("Nenhum proxy ativo disponível")
 
         # ✅ NOVO SESSION ID a cada conexão = IP diferente
-        # Format: usar apenas últimos 8 chars do UUID + timestamp para manter curto
-        chip_suffix = str(chip.id).split('-')[-1]  # Últimos 12 chars do UUID
-        timestamp = int(datetime.now(timezone.utc).timestamp() * 1000)  # milissegundos
-        session_id = f"{chip_suffix}{timestamp}"  # Ex: bafbcbec06151763174415747
+        # Format: 8 chars do UUID (para ser curto e compatível com DataImpulse)
+        chip_suffix = str(chip.id).split('-')[-1][:8]  # Primeiros 8 chars do último segmento
+        timestamp_suffix = str(int(datetime.now(timezone.utc).timestamp()))[-4:]  # Últimos 4 dígitos do timestamp
+        session_id = f"{chip_suffix}{timestamp_suffix}"  # Ex: bafbcbec1234 (12 chars total)
         
         # ✅ VALIDAR: Verificar se session_id já existe (improvável mas seguro)
         collision_check = await self.session.execute(
@@ -225,17 +225,47 @@ class ProxyService:
 
     def _build_proxy_url(self, proxy: Proxy, session_identifier: str) -> str:
         """
-        Constrói URL do proxy.
+        Constrói URL do proxy com sticky session.
         
-        - Mobile: retorna URL direta (sem session)
-        - Residential: aplica session identifier
+        Formato esperado de proxy.proxy_url:
+        - http://username:password@host:port
+        - socks5://username:password@host:port
+        
+        Args:
+            proxy: Proxy object
+            session_identifier: Identificador de sessão único
+            
+        Returns:
+            URL completa com session identifier
         """
         # Mobile proxies não precisam de session ID (já rotacionam)
         if proxy.proxy_type == "mobile":
             return proxy.proxy_url
         
-        # Residential: aplicar session identifier
-        return proxy.proxy_url.format(session=session_identifier)
+        # Parse proxy URL
+        parts = proxy.proxy_url.split("://")
+        protocol = parts[0]
+        auth_host = parts[1] if len(parts) > 1 else parts[0]
+        
+        # Extrair auth e host
+        auth_parts = auth_host.split("@")
+        if len(auth_parts) > 1:
+            credentials = auth_parts[0]
+            server_address = auth_parts[1]
+            
+            # Adicionar session_identifier ao username
+            user_pass = credentials.split(":")
+            username = user_pass[0]
+            password = user_pass[1] if len(user_pass) > 1 else ""
+            
+            # ✅ FORMATO DATAIMPULSE: username_session-{session_id}
+            # Nota: DataImpulse usa UNDERSCORE antes de "session", não hífen
+            username_with_session = f"{username}_session-{session_identifier}"
+            
+            return f"{protocol}://{username_with_session}:{password}@{server_address}"
+        
+        # Fallback: proxy sem auth
+        return proxy.proxy_url
 
 
 __all__ = ["ProxyService"]

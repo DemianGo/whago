@@ -85,17 +85,30 @@ class WAHAClient:
             except httpx.HTTPStatusError:
                 pass  # Sessão não existe, ok
 
-            # Configurar proxy se fornecido
+            # Configurar proxy E fingerprinting se fornecido
             config_data = {}
+            
+            # ✅ FINGERPRINTING: Simular dispositivo Android real
+            config_data["metadata"] = {
+                "platform": "android",
+                "browser": {
+                    "name": "Chrome",
+                    "version": "119.0.0.0"
+                },
+                "device": {
+                    "manufacturer": "Samsung",
+                    "model": "Galaxy S21",
+                    "os_version": "13"
+                }
+            }
+            
             if proxy_url:
                 # Extrair componentes do proxy URL
                 proxy_parts = self._parse_proxy_url(proxy_url)
-                config_data = {
-                    "proxy": {
-                        "server": f"{proxy_parts['protocol']}://{proxy_parts['host']}:{proxy_parts['port']}",
-                        "username": proxy_parts.get("username"),
-                        "password": proxy_parts.get("password"),
-                    }
+                config_data["proxy"] = {
+                    "server": f"{proxy_parts['protocol']}://{proxy_parts['host']}:{proxy_parts['port']}",
+                    "username": proxy_parts.get("username"),
+                    "password": proxy_parts.get("password"),
                 }
 
             # Criar ou atualizar sessão
