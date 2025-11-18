@@ -163,8 +163,8 @@ class WahaContainerManager:
                 f"(ID: {container.id[:12]}, Porta: {port})"
             )
             
-            # Aguardar container estar pronto
-            await self._wait_for_container_ready(container_name, port, timeout=60)
+            # Aguardar container estar pronto (WAHA Plus demora ~90-120s para inicializar)
+            await self._wait_for_container_ready(container_name, port, timeout=180)
             
             container_info = {
                 "container_name": container_name,

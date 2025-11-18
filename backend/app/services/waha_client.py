@@ -66,9 +66,9 @@ class WAHAClient:
         """
         client = await self._get_client()
         
-        # WAHA Core só aceita sessão "default", então vamos criar uma estratégia:
-        # Usar o alias como parte da identificação mas sempre criar em "default"
-        session_name = "default"
+        # ✅ WAHA Plus: Usar alias como nome da sessão (suporte multi-sessão)
+        # Cada chip tem sua própria sessão nomeada
+        session_name = alias
         
         try:
             # Primeiro, verificar se já existe uma sessão
@@ -88,18 +88,14 @@ class WAHAClient:
             # Configurar proxy E fingerprinting se fornecido
             config_data = {}
             
-            # ✅ FINGERPRINTING: Simular dispositivo Android real
+            # ✅ FINGERPRINTING: Simular dispositivo Android real (flat key-value)
             config_data["metadata"] = {
                 "platform": "android",
-                "browser": {
-                    "name": "Chrome",
-                    "version": "119.0.0.0"
-                },
-                "device": {
-                    "manufacturer": "Samsung",
-                    "model": "Galaxy S21",
-                    "os_version": "13"
-                }
+                "browser_name": "Chrome",
+                "browser_version": "119.0.0.0",
+                "device_manufacturer": "Samsung",
+                "device_model": "Galaxy S21",
+                "device_os_version": "13"
             }
             
             if proxy_url:
@@ -117,18 +113,33 @@ class WAHAClient:
                 "config": config_data,
             }
             
-            try:
-                # Tentar PUT (atualizar)
-                response = await client.put(f"/api/sessions/{session_name}", json=payload)
-                if response.status_code not in [200, 201]:
-                    # Se falhar, tentar POST (criar)
-                    response = await client.post("/api/sessions", json=payload)
-            except httpx.HTTPStatusError:
-                # Tentar POST como fallback
-                response = await client.post("/api/sessions", json=payload)
+            # Retry logic para container que ainda está inicializando
+            max_retries = 3
+            retry_delay = 15  # segundos
             
-            response.raise_for_status()
-            session_data = response.json()
+            for attempt in range(max_retries):
+                try:
+                    # Tentar PUT (atualizar)
+                    response = await client.put(f"/api/sessions/{session_name}", json=payload)
+                    if response.status_code not in [200, 201]:
+                        # Se falhar, tentar POST (criar)
+                        response = await client.post("/api/sessions", json=payload)
+                    
+                    response.raise_for_status()
+                    session_data = response.json()
+                    break  # Sucesso, sair do loop
+                    
+                except httpx.HTTPStatusError as e:
+                    if attempt < max_retries - 1 and e.response.status_code in [400, 503]:
+                        # Container ainda não pronto, aguardar e tentar novamente
+                        logger.warning(
+                            f"Tentativa {attempt + 1}/{max_retries} falhou para {session_name}. "
+                            f"Aguardando {retry_delay}s antes de retentar..."
+                        )
+                        await asyncio.sleep(retry_delay)
+                    else:
+                        # Última tentativa ou erro não recuperável
+                        raise
             
             logger.info(
                 f"Sessão WAHA configurada: {session_name} | "
