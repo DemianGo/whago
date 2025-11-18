@@ -389,3 +389,4 @@ curl -X POST http://localhost:3030/api/sessions/create \
 **Confiança:** 99.9% que funcionará imediatamente
 
 
+

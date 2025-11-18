@@ -168,3 +168,4 @@ docker logs whago-baileys 2>&1 | tail -30
 **Confiança:** 99% que funcionará com a correção
 
 
+

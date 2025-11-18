@@ -272,3 +272,4 @@ docker logs whago-baileys -f | grep -E "QR|fingerprint|Proxy"
 
 
 
+
