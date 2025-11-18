@@ -2134,6 +2134,7 @@ function bindCampaignWizardElements() {
   document.getElementById("campaign-chips-form")?.addEventListener("submit", handleCampaignChipsSubmit);
   document.getElementById("campaign-contacts-form")?.addEventListener("submit", handleCampaignContactsSubmit);
   document.getElementById("campaign-start-button")?.addEventListener("click", handleCampaignStart);
+  document.getElementById("campaign-save-button")?.addEventListener("click", handleCampaignSave);
   document.getElementById("campaign-basic-cancel")?.addEventListener("click", (event) => {
     event.preventDefault();
     closeCampaignWizard();
@@ -2240,9 +2241,11 @@ function goToCampaignStep(step, initial = false) {
   }
 }
 
-function openCampaignWizard() {
+function openCampaignWizard(skipReset = false) {
   bindCampaignWizardElements();
-  resetCampaignWizard();
+  if (!skipReset) {
+    resetCampaignWizard();
+  }
   campaignState.wizard.element?.classList.remove("hidden");
   campaignState.wizard.backdrop?.classList.remove("hidden");
 }
@@ -2255,28 +2258,21 @@ function closeCampaignWizard() {
 
 async function handleCampaignBasicSubmit(event) {
   event.preventDefault();
-  if (campaignState.campaignId) {
-    goToCampaignStep(2);
-    await loadCampaignWizardChips();
-    return;
-  }
+  
   const nameInput = document.getElementById("campaign-name");
   const templateInput = document.getElementById("campaign-template");
   if (!nameInput?.value || !templateInput?.value) {
     setCampaignFeedback("Informe nome e mensagem principal para continuar.", "warning");
     return;
   }
+  
   const payload = {
     name: nameInput.value.trim(),
     description: document.getElementById("campaign-description")?.value?.trim() || null,
-    message_template: templateInput.value,
+    message_template: templateInput.value.trim(),
     message_template_b: document.getElementById("campaign-template-b")?.value?.trim() || null,
-    settings: {
-      chip_ids: [],
-      interval_seconds: 10,
-      randomize_interval: false,
-    },
   };
+  
   const scheduleToggle = document.getElementById("campaign-schedule-toggle");
   const scheduleDatetime = document.getElementById("campaign-schedule-datetime");
   if (scheduleToggle?.checked) {
@@ -2290,6 +2286,8 @@ async function handleCampaignBasicSubmit(event) {
       return;
     }
     payload.scheduled_for = date.toISOString();
+  } else {
+    payload.scheduled_for = null;
   }
 
   const mediaInput = document.getElementById("campaign-media");
@@ -2298,6 +2296,52 @@ async function handleCampaignBasicSubmit(event) {
     campaignState.pendingMediaFile = pendingFile;
   }
 
+  // Modo de EDIÇÃO
+  if (campaignState.campaignId) {
+    // Preservar settings existentes
+    const existingSettings = campaignState.createdCampaign?.settings || {};
+    payload.settings = {
+      ...existingSettings,
+      chip_ids: existingSettings.chip_ids || [],
+      interval_seconds: existingSettings.interval_seconds || 10,
+      randomize_interval: existingSettings.randomize_interval || false,
+    };
+    
+    console.log("📤 Enviando PUT para editar campanha:", payload);
+    
+    const response = await apiFetch(`/campaigns/${campaignState.campaignId}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+    if (!response?.ok) {
+      const errorText = await response.text();
+      console.error("❌ Erro no PUT:", errorText);
+      setCampaignFeedback(errorText || "Não foi possível atualizar a campanha.", "error");
+      return;
+    }
+    const data = await response.json();
+    campaignState.createdCampaign = data;
+    campaignState.media = Array.isArray(data.media) ? data.media : [];
+    setCampaignFeedback("Informações atualizadas! Continue para os próximos passos.", "success");
+    renderCampaignMediaList();
+    await maybeUploadPendingMedia();
+    if (mediaInput) {
+      mediaInput.value = "";
+    }
+    
+    // Ir para o passo 2 (chips) - NÃO fechar o wizard
+    await loadCampaignWizardChips();
+    goToCampaignStep(2);
+    return;
+  }
+  
+  // Modo de CRIAÇÃO
+  payload.settings = {
+    chip_ids: [],
+    interval_seconds: 10,
+    randomize_interval: false,
+  };
+  
   const response = await apiFetch("/campaigns", {
     method: "POST",
     body: JSON.stringify(payload),
@@ -2340,17 +2384,45 @@ function renderCampaignChips(chips) {
     container.innerHTML = '<p class="text-sm text-slate-500">Nenhum chip disponível. Cadastre chips antes de prosseguir.</p>';
     return;
   }
+  
+  // Contar chips conectados
+  const connectedChips = chips.filter(c => (c.status || "").toLowerCase() === "connected");
+  
+  // Mostrar aviso se não houver chips conectados
+  if (connectedChips.length === 0) {
+    const warning = document.createElement("div");
+    warning.className = "bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4";
+    warning.innerHTML = `
+      <p class="text-sm text-yellow-800">
+        ⚠️ <strong>Nenhum chip conectado!</strong> 
+        Conecte pelo menos um chip antes de iniciar a campanha.
+      </p>
+    `;
+    container.appendChild(warning);
+  }
+  
   chips.forEach((chip) => {
     const card = document.createElement("label");
-    const disabled = !["connected", "maturing", "waiting_qr"].includes((chip.status || "").toLowerCase());
-    card.className = `card space-y-2 ${disabled ? "opacity-60" : ""}`;
+    const isConnected = (chip.status || "").toLowerCase() === "connected";
+    const disabled = !isConnected;
+    const isSelected = campaignState.selectedChips.has(chip.id);
+    
+    // Se está desconectado e estava selecionado, remover da seleção
+    if (disabled && isSelected) {
+      campaignState.selectedChips.delete(chip.id);
+    }
+    
+    card.className = `card space-y-2 ${disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:bg-slate-50"}`;
     card.innerHTML = `
       <div class="flex items-center justify-between gap-3">
-        <div>
-          <p class="font-medium text-slate-700">${chip.alias}</p>
+        <div class="flex-1">
+          <p class="font-medium ${disabled ? "text-slate-400" : "text-slate-700"}">
+            ${chip.alias}
+            ${disabled ? '<span class="text-xs text-red-600 ml-2">(Desconectado)</span>' : ""}
+          </p>
           <p class="text-xs text-slate-500">Status: ${formatChipStatus(chip.status)}</p>
         </div>
-        <input type="checkbox" value="${chip.id}" ${disabled ? "disabled" : ""} class="rounded border-slate-300" data-test="campaign-chip" />
+        <input type="checkbox" value="${chip.id}" ${disabled ? "disabled" : ""} ${isSelected && !disabled ? "checked" : ""} class="rounded border-slate-300" data-test="campaign-chip" />
       </div>
       <p class="text-xs text-slate-500">Saúde: ${chip.health_score ?? "--"}</p>
     `;
@@ -2402,12 +2474,26 @@ async function handleCampaignContactsSubmit(event) {
     setCampaignFeedback("Crie a campanha antes de importar contatos.", "warning");
     return;
   }
+  
   const fileInput = document.getElementById("campaign-contacts-file");
   const file = fileInput?.files?.[0];
+  
+  // Se não tem arquivo, mas já tem contatos importados, permitir continuar
   if (!file) {
-    setCampaignFeedback("Selecione um arquivo CSV para importar.", "warning");
-    return;
+    if (campaignState.contactsSummary && campaignState.contactsSummary.valid_contacts > 0) {
+      // Já tem contatos, pode pular para revisão
+      setCampaignFeedback("Usando contatos já importados. Revise e finalize o disparo.", "info");
+      await populateCampaignReview();
+      goToCampaignStep(4);
+      return;
+    } else {
+      // Não tem arquivo e não tem contatos
+      setCampaignFeedback("Selecione um arquivo CSV para importar contatos.", "warning");
+      return;
+    }
   }
+  
+  // Tem arquivo, fazer upload (substituir contatos antigos)
   const token = getAccessToken();
   const formData = new FormData();
   formData.append("file", file);
@@ -2506,6 +2592,17 @@ function renderCampaignReview() {
   `;
 }
 
+async function handleCampaignSave() {
+  if (!campaignState.campaignId) {
+    setCampaignFeedback("Nenhuma campanha para salvar.", "warning");
+    return;
+  }
+  
+  // Fechar wizard e atualizar lista
+  closeCampaignWizard();
+  await loadCampaigns({ toast: "Campanha salva com sucesso!" });
+}
+
 async function handleCampaignStart() {
   if (!campaignState.campaignId) return;
   const response = await apiFetch(`/campaigns/${campaignState.campaignId}/start`, {
@@ -2542,22 +2639,185 @@ function bindCampaignsPage() {
 function buildCampaignActionButtons(campaign) {
   const status = (campaign.status || "").toLowerCase();
   const buttons = [];
-  if (status === "draft" || status === "scheduled") {
+  
+  // DRAFT: Editar, Iniciar, Deletar
+  if (status === "draft") {
+    buttons.push(`<button data-campaign-action="edit" data-campaign-id="${campaign.id}" class="btn-secondary btn-xs" type="button" title="Editar campanha">✏️ Editar</button>`);
     buttons.push(`<button data-campaign-action="start" data-campaign-id="${campaign.id}" class="btn-primary btn-xs" type="button">Iniciar</button>`);
+    buttons.push(`<button data-campaign-action="delete" data-campaign-id="${campaign.id}" class="btn-xs px-2 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded transition-colors" type="button" title="Deletar campanha">🗑️</button>`);
   }
+  
+  // SCHEDULED: Editar, Cancelar, Deletar
+  if (status === "scheduled") {
+    buttons.push(`<button data-campaign-action="edit" data-campaign-id="${campaign.id}" class="btn-secondary btn-xs" type="button" title="Editar campanha">✏️ Editar</button>`);
+    buttons.push(`<button data-campaign-action="cancel" data-campaign-id="${campaign.id}" class="btn-xs px-2 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded transition-colors" type="button">Cancelar</button>`);
+    buttons.push(`<button data-campaign-action="delete" data-campaign-id="${campaign.id}" class="btn-xs px-2 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded transition-colors" type="button" title="Deletar campanha">🗑️</button>`);
+  }
+  
+  // RUNNING: Pausar, Cancelar (SEM Editar)
   if (status === "running") {
     buttons.push(`<button data-campaign-action="pause" data-campaign-id="${campaign.id}" class="btn-secondary btn-xs" type="button">Pausar</button>`);
-    buttons.push(`<button data-campaign-action="cancel" data-campaign-id="${campaign.id}" class="btn-secondary btn-xs" type="button">Cancelar</button>`);
+    buttons.push(`<button data-campaign-action="cancel" data-campaign-id="${campaign.id}" class="btn-xs px-2 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded transition-colors" type="button">Cancelar</button>`);
   }
+  
+  // PAUSED: Editar, Retomar, Cancelar
   if (status === "paused") {
+    buttons.push(`<button data-campaign-action="edit" data-campaign-id="${campaign.id}" class="btn-secondary btn-xs" type="button" title="Editar campanha">✏️ Editar</button>`);
     buttons.push(`<button data-campaign-action="resume" data-campaign-id="${campaign.id}" class="btn-primary btn-xs" type="button">Retomar</button>`);
-    buttons.push(`<button data-campaign-action="cancel" data-campaign-id="${campaign.id}" class="btn-secondary btn-xs" type="button">Cancelar</button>`);
+    buttons.push(`<button data-campaign-action="cancel" data-campaign-id="${campaign.id}" class="btn-xs px-2 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded transition-colors" type="button">Cancelar</button>`);
   }
+  
+  // CANCELLED e COMPLETED: Apenas Deletar
+  if (status === "cancelled" || status === "completed") {
+    buttons.push(`<button data-campaign-action="delete" data-campaign-id="${campaign.id}" class="btn-xs px-2 py-1 text-xs font-medium text-white bg-red-600 hover:bg-red-700 rounded transition-colors" type="button" title="Deletar campanha">🗑️ Deletar</button>`);
+  }
+  
   return buttons.join(" ");
+}
+
+async function loadCampaignForEdit(campaignId) {
+  // Buscar dados da campanha
+  const response = await apiFetch(`/campaigns/${campaignId}`);
+  if (!response?.ok) {
+    setCampaignFeedback("Erro ao carregar campanha para edição.", "error");
+    return;
+  }
+  
+  const campaign = await response.json();
+  console.log("🔍 Campanha carregada para edição:", campaign);
+  
+  // Validar se pode editar (permitir apenas DRAFT, SCHEDULED, PAUSED)
+  if (campaign.status === "running") {
+    setCampaignFeedback("Pause a campanha antes de editá-la.", "warning");
+    return;
+  }
+  
+  if (campaign.status === "completed" || campaign.status === "cancelled") {
+    setCampaignFeedback("Não é possível editar campanhas completas ou canceladas.", "warning");
+    return;
+  }
+  
+  // Abrir wizard SEM resetar (modo edição)
+  bindCampaignWizardElements();
+  campaignState.wizard.element?.classList.remove("hidden");
+  campaignState.wizard.backdrop?.classList.remove("hidden");
+  
+  // Armazenar ID para modo de edição
+  campaignState.campaignId = campaignId;
+  campaignState.createdCampaign = campaign;
+  
+  // Aguardar renderização do DOM
+  await new Promise(resolve => setTimeout(resolve, 100));
+  
+  // Preencher formulário básico
+  const nameInput = document.getElementById("campaign-name");
+  const descInput = document.getElementById("campaign-description");
+  const templateInput = document.getElementById("campaign-template");
+  const templateBInput = document.getElementById("campaign-template-b");
+  
+  if (nameInput) nameInput.value = campaign.name || "";
+  if (descInput) descInput.value = campaign.description || "";
+  if (templateInput) templateInput.value = campaign.message_template || "";
+  if (templateBInput) templateBInput.value = campaign.message_template_b || "";
+  
+  console.log("✅ Campos preenchidos:", {
+    name: nameInput?.value,
+    desc: descInput?.value,
+    template: templateInput?.value,
+  });
+  
+  // Agendamento
+  if (campaign.scheduled_for) {
+    const scheduleToggle = document.getElementById("campaign-schedule-toggle");
+    const scheduleDatetime = document.getElementById("campaign-schedule-datetime");
+    const scheduleFields = document.getElementById("campaign-schedule-fields");
+    
+    if (scheduleToggle) scheduleToggle.checked = true;
+    if (scheduleDatetime) {
+      // Converter para formato datetime-local
+      const date = new Date(campaign.scheduled_for);
+      const year = date.getFullYear();
+      const month = String(date.getMonth() + 1).padStart(2, '0');
+      const day = String(date.getDate()).padStart(2, '0');
+      const hours = String(date.getHours()).padStart(2, '0');
+      const minutes = String(date.getMinutes()).padStart(2, '0');
+      scheduleDatetime.value = `${year}-${month}-${day}T${hours}:${minutes}`;
+    }
+    if (scheduleFields) scheduleFields.classList.remove("hidden");
+  }
+  
+  // Carregar chips selecionados e configurações
+  const settings = campaign.settings || {};
+  if (Array.isArray(settings.chip_ids)) {
+    campaignState.selectedChips = new Set(settings.chip_ids);
+  }
+  
+  // Preencher intervalo e randomização (quando carregar o passo 2)
+  const intervalInput = document.getElementById("campaign-interval");
+  const randomizeInput = document.getElementById("campaign-randomize");
+  if (intervalInput && settings.interval_seconds) {
+    intervalInput.value = settings.interval_seconds;
+  }
+  if (randomizeInput && typeof settings.randomize_interval === "boolean") {
+    randomizeInput.checked = settings.randomize_interval;
+  }
+  
+  // Carregar resumo de contatos (se existem)
+  if (campaign.total_contacts > 0) {
+    campaignState.contactsSummary = {
+      valid_contacts: campaign.total_contacts,
+      total_processed: campaign.total_contacts,
+      invalid_contacts: 0,
+      duplicated: 0,
+      variables: []
+    };
+    
+    // Mostrar resumo de contatos
+    const summaryElement = document.getElementById("campaign-contacts-summary");
+    if (summaryElement) {
+      summaryElement.classList.remove("hidden");
+      summaryElement.innerHTML = `
+        <p><strong>${campaign.total_contacts}</strong> contatos já importados.</p>
+        <p class="text-xs text-slate-500 mt-2">💡 Você pode deixar como está ou fazer upload de um novo CSV para substituir.</p>
+      `;
+    }
+  }
+  
+  // Atualizar título
+  const wizardTitle = document.getElementById("campaign-wizard-title");
+  const wizardSubtitle = document.getElementById("campaign-wizard-subtitle");
+  if (wizardTitle) wizardTitle.textContent = "Editar campanha";
+  if (wizardSubtitle) wizardSubtitle.textContent = "Modifique as informações da campanha e salve.";
+  
+  setCampaignFeedback(`Editando campanha: ${campaign.name}`, "info");
 }
 
 async function handleCampaignRowAction(campaignId, action) {
   if (!campaignId || !action) return;
+  
+  // Ação: EDITAR
+  if (action === "edit") {
+    await loadCampaignForEdit(campaignId);
+    return;
+  }
+  
+  // Ação: DELETAR
+  if (action === "delete") {
+    const confirmed = confirm("Deseja realmente deletar esta campanha?\n\nEsta ação é irreversível e irá remover:\n- Todos os contatos\n- Todas as mensagens\n- Todas as mídias\n\nChips e proxies não serão afetados.");
+    if (!confirmed) return;
+    
+    const response = await apiFetch(`/campaigns/${campaignId}`, { method: "DELETE" });
+    if (!response?.ok) {
+      const message = await response.text();
+      setCampaignFeedback(message || "Não foi possível deletar a campanha.", "error");
+      return;
+    }
+    setCampaignFeedback("Campanha deletada com sucesso. Recursos liberados.", "success");
+    await loadCampaigns({ silent: true });
+    return;
+  }
+  
+  // Ações: START, RESUME, PAUSE, CANCEL
   let endpoint;
   if (action === "start" || action === "resume") {
     endpoint = `/campaigns/${campaignId}/start`;
@@ -2568,6 +2828,7 @@ async function handleCampaignRowAction(campaignId, action) {
   } else {
     return;
   }
+  
   const response = await apiFetch(endpoint, { method: "POST" });
   if (!response?.ok) {
     const message = await response.text();
@@ -2575,7 +2836,20 @@ async function handleCampaignRowAction(campaignId, action) {
     return;
   }
   const data = await response.json();
-  setCampaignFeedback(`Campanha atualizada: ${formatCampaignStatus(data.status)}.`, "success");
+  
+  // Mensagem customizada por ação
+  let message = "";
+  if (action === "start") {
+    message = "Campanha iniciada! Mensagens sendo enviadas.";
+  } else if (action === "resume") {
+    message = "Campanha retomada! Continuando envios.";
+  } else if (action === "pause") {
+    message = "Campanha pausada. Mensagens pendentes preservadas.";
+  } else if (action === "cancel") {
+    message = "Campanha cancelada. Mensagens pendentes marcadas como falhas.";
+  }
+  
+  setCampaignFeedback(message || `Status: ${formatCampaignStatus(data.status)}`, "success");
   await loadCampaigns({ silent: true });
 }
 

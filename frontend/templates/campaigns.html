@@ -158,8 +158,8 @@
           Importe uma planilha CSV com pelo menos a coluna <code>numero</code> (E.164). Outras colunas serão tratadas como variáveis para personalização.
         </p>
         <div class="space-y-2">
-          <label class="card__label" for="campaign-contacts-file">Arquivo CSV</label>
-          <input id="campaign-contacts-file" type="file" accept=".csv" class="input" required />
+          <label class="card__label" for="campaign-contacts-file">Arquivo CSV <span class="text-xs text-slate-500">(opcional se já importou)</span></label>
+          <input id="campaign-contacts-file" type="file" accept=".csv" class="input" />
         </div>
         <div id="campaign-contacts-summary" class="text-sm text-slate-600 hidden"></div>
         <div id="campaign-variables-summary" class="hidden rounded-xl border border-dashed border-slate-300 p-3 text-xs text-slate-600"></div>
@@ -174,7 +174,10 @@
       <div class="space-y-4" id="campaign-review"></div>
       <div class="wizard__actions">
         <button type="button" class="btn-secondary" data-step-back="3">Voltar</button>
-        <button type="button" class="btn-primary" id="campaign-start-button" data-test="campaign-start">Iniciar envio</button>
+        <div class="flex gap-2">
+          <button type="button" class="btn-secondary" id="campaign-save-button" data-test="campaign-save">💾 Salvar</button>
+          <button type="button" class="btn-primary" id="campaign-start-button" data-test="campaign-start">🚀 Iniciar envio</button>
+        </div>
       </div>
     </section>
   </div>

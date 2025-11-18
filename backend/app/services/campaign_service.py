@@ -16,7 +16,7 @@ from contextlib import suppress
 
 from fastapi import HTTPException, UploadFile, status
 from fastapi.responses import FileResponse
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -169,10 +169,13 @@ class CampaignService:
     ) -> CampaignDetail:
         campaign = await self._get_user_campaign(user, campaign_id)
         db_user = await self._get_user_with_plan(user)
-        if campaign.status not in {CampaignStatus.DRAFT, CampaignStatus.SCHEDULED}:
+        
+        # Permitir editar DRAFT, SCHEDULED e PAUSED
+        # NÃO permitir editar RUNNING, COMPLETED ou CANCELLED
+        if campaign.status not in {CampaignStatus.DRAFT, CampaignStatus.SCHEDULED, CampaignStatus.PAUSED}:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Só é possível editar campanhas em rascunho ou agendadas.",
+                detail="Pause a campanha antes de editá-la. Não é possível editar campanhas em andamento, completas ou canceladas.",
             )
 
         if data.name is not None:
@@ -202,14 +205,101 @@ class CampaignService:
         return await self._build_campaign_detail(campaign)
 
     async def delete_campaign(self, user: User, campaign_id: UUID) -> None:
+        """
+        Deleta uma campanha e todos os recursos associados:
+        1. Cancela task do Celery (se rodando)
+        2. Deleta mídias (arquivos + registros)
+        3. Deleta mensagens
+        4. Deleta contatos
+        5. Deleta campanha
+        
+        IMPORTANTE: Chips, proxies e sessões WAHA não são deletados,
+        pois são recursos do usuário que existem independentemente das campanhas.
+        """
         campaign = await self._get_user_campaign(user, campaign_id)
-        if campaign.status not in {CampaignStatus.DRAFT, CampaignStatus.CANCELLED}:
+        
+        # Apenas campanhas em DRAFT, CANCELLED ou COMPLETED podem ser deletadas
+        if campaign.status not in {CampaignStatus.DRAFT, CampaignStatus.CANCELLED, CampaignStatus.COMPLETED}:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Só é possível excluir campanhas em rascunho ou canceladas.",
+                detail="Só é possível excluir campanhas em rascunho, canceladas ou completas. Cancele a campanha antes de excluir.",
             )
+        
+        logger.info(f"Iniciando deleção da campanha {campaign_id} (nome: {campaign.name})")
+        
+        # 1. Cancelar task do Celery se estiver rodando
+        try:
+            from tasks.celery_app import celery_app
+            # Tentar revocar task do Celery
+            task_name = f"campaign.start_dispatch"
+            celery_app.control.revoke(str(campaign_id), terminate=True, signal='SIGKILL')
+            logger.info(f"Task Celery revogada para campanha {campaign_id}")
+        except Exception as e:
+            logger.warning(f"Erro ao revogar task Celery: {e}")
+        
+        # 2. Deletar mídias (arquivos físicos + registros do banco)
+        try:
+            result_media = await self.session.execute(
+                select(CampaignMedia).where(CampaignMedia.campaign_id == campaign.id)
+            )
+            medias = result_media.scalars().all()
+            
+            for media in medias:
+                # Deletar arquivo físico
+                media_path = Path(media.file_path)
+                if media_path.exists():
+                    media_path.unlink()
+                    logger.info(f"Arquivo de mídia deletado: {media.file_path}")
+                
+                # Deletar registro
+                await self.session.delete(media)
+            
+            logger.info(f"{len(medias)} mídias deletadas da campanha {campaign_id}")
+        except Exception as e:
+            logger.error(f"Erro ao deletar mídias: {e}")
+        
+        # 3. Deletar mensagens (em lote para performance)
+        try:
+            result = await self.session.execute(
+                delete(CampaignMessage).where(CampaignMessage.campaign_id == campaign.id)
+            )
+            messages_deleted = result.rowcount or 0
+            logger.info(f"{messages_deleted} mensagens deletadas da campanha {campaign_id}")
+        except Exception as e:
+            logger.error(f"Erro ao deletar mensagens: {e}")
+        
+        # 4. Deletar contatos (em lote para performance)
+        try:
+            result = await self.session.execute(
+                delete(CampaignContact).where(CampaignContact.campaign_id == campaign.id)
+            )
+            contacts_deleted = result.rowcount or 0
+            logger.info(f"{contacts_deleted} contatos deletados da campanha {campaign_id}")
+        except Exception as e:
+            logger.error(f"Erro ao deletar contatos: {e}")
+        
+        # 5. Registrar auditoria antes de deletar
+        audit = AuditService(self.session)
+        await audit.record(
+            user_id=user.id,
+            action="campaign.delete",
+            entity_type="campaign",
+            entity_id=str(campaign.id),
+            description=f"Campanha '{campaign.name}' deletada.",
+            extra_data={
+                "campaign_name": campaign.name,
+                "status": campaign.status.value,
+                "total_contacts": campaign.total_contacts,
+                "sent_count": campaign.sent_count,
+            },
+            auto_commit=False,
+        )
+        
+        # 6. Deletar campanha (cascade vai cuidar de relacionamentos restantes)
         await self.session.delete(campaign)
         await self.session.commit()
+        
+        logger.info(f"Campanha {campaign_id} deletada com sucesso")
 
     async def upload_contacts(
         self,
@@ -220,10 +310,13 @@ class CampaignService:
         campaign = await self._get_user_campaign(user, campaign_id)
         db_user = await self._get_user_with_plan(user)
         contacts_limit = self._get_contacts_limit(db_user)
-        if campaign.status not in {CampaignStatus.DRAFT, CampaignStatus.SCHEDULED}:
+        
+        # Permitir upload em DRAFT, SCHEDULED e PAUSED
+        # NÃO permitir em RUNNING, COMPLETED ou CANCELLED
+        if campaign.status not in {CampaignStatus.DRAFT, CampaignStatus.SCHEDULED, CampaignStatus.PAUSED}:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Não é possível importar contatos após o início da campanha.",
+                detail="Pause a campanha antes de importar novos contatos. Não é possível modificar campanhas em andamento, completas ou canceladas.",
             )
 
         content = await file.read()
@@ -425,6 +518,28 @@ class CampaignService:
 
         now = datetime.now(timezone.utc)
 
+        # Validar chips conectados TANTO ao iniciar QUANTO ao retomar
+        from app.models.chip import Chip, ChipStatus
+        result_connected = await self.session.execute(
+            select(func.count(Chip.id)).where(
+                Chip.id.in_(chip_ids),
+                Chip.status == ChipStatus.CONNECTED
+            )
+        )
+        connected_chips = result_connected.scalar_one()
+        
+        if connected_chips == 0:
+            if campaign.status == CampaignStatus.PAUSED:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Nenhum chip está conectado. Conecte pelo menos um chip antes de retomar a campanha.",
+                )
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Nenhum chip está conectado. Conecte pelo menos um chip antes de iniciar a campanha.",
+                )
+
         if campaign.status == CampaignStatus.PAUSED:
             campaign.status = CampaignStatus.RUNNING
             await audit.record(
@@ -512,6 +627,13 @@ class CampaignService:
         return CampaignActionResponse(status=campaign.status, message="Dispatch síncrono executado.")
 
     async def pause_campaign(self, user: User, campaign_id: UUID) -> CampaignActionResponse:
+        """
+        Pausa uma campanha em andamento:
+        1. Revoga task do Celery (interrompe envios)
+        2. Atualiza status para PAUSED
+        
+        IMPORTANTE: Mensagens pendentes permanecem pendentes (não são canceladas).
+        """
         db_user = await self._get_user_with_plan(user)
         campaign = await self._get_user_campaign(user, campaign_id)
         if campaign.status != CampaignStatus.RUNNING:
@@ -519,6 +641,14 @@ class CampaignService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Só é possível pausar campanhas em andamento.",
             )
+
+        # 1. Revogar task do Celery para interromper envios
+        try:
+            from tasks.celery_app import celery_app
+            celery_app.control.revoke(str(campaign_id), terminate=True, signal='SIGKILL')
+            logger.info(f"Task Celery revogada para pausar campanha {campaign_id}")
+        except Exception as e:
+            logger.warning(f"Erro ao revogar task Celery ao pausar: {e}")
 
         campaign.status = CampaignStatus.PAUSED
         audit = AuditService(self.session)
@@ -548,6 +678,14 @@ class CampaignService:
         return CampaignActionResponse(status=campaign.status, message="Campanha pausada.")
 
     async def cancel_campaign(self, user: User, campaign_id: UUID) -> CampaignActionResponse:
+        """
+        Cancela uma campanha em andamento:
+        1. Revoga task do Celery (para envios)
+        2. Marca mensagens pendentes como falhas
+        3. Atualiza status da campanha
+        
+        IMPORTANTE: Não libera chips/proxies, apenas interrompe envios.
+        """
         db_user = await self._get_user_with_plan(user)
         campaign = await self._get_user_campaign(user, campaign_id)
         if campaign.status not in {CampaignStatus.RUNNING, CampaignStatus.PAUSED, CampaignStatus.SCHEDULED}:
@@ -555,6 +693,14 @@ class CampaignService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Campanha não está em estado que permita cancelamento.",
             )
+
+        # 1. Revogar task do Celery imediatamente
+        try:
+            from tasks.celery_app import celery_app
+            celery_app.control.revoke(str(campaign_id), terminate=True, signal='SIGKILL')
+            logger.info(f"Task Celery revogada para campanha {campaign_id}")
+        except Exception as e:
+            logger.warning(f"Erro ao revogar task Celery ao cancelar: {e}")
 
         now = datetime.now(timezone.utc)
         update_result = await self.session.execute(
