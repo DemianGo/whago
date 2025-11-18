@@ -32,7 +32,7 @@ echo ""
 echo "2. Verificando chip conectado..."
 
 # Usar chip conhecido do banco
-CHIP_ID="ff20f892-c630-46fb-84a6-16c2e742e59e"
+CHIP_ID="da3a7ba3-a4e4-44ad-bb06-749a30213cbd"
 CHIP_STATUS=$(docker exec whago-postgres psql -U whago -d whago -t -c "SELECT status FROM chips WHERE id = '$CHIP_ID';")
 CHIP_STATUS=$(echo "$CHIP_STATUS" | tr -d ' \n')
 

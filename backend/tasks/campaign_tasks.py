@@ -433,28 +433,55 @@ async def _finalize_campaign_if_complete(campaign_id: UUID) -> None:
 @shared_task(name="campaign.start_dispatch")
 def start_campaign_dispatch(campaign_id: str) -> None:
     """Inicia o dispatch de uma campanha (Celery task síncrona)."""
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
+    import gc
+    
+    # Criar novo event loop completamente isolado
     try:
-        loop.run_until_complete(_start_campaign_dispatch(UUID(campaign_id)))
+        # Garantir que não há loop ativo
+        try:
+            old_loop = asyncio.get_event_loop()
+            if old_loop and not old_loop.is_closed():
+                old_loop.close()
+        except RuntimeError:
+            pass
+        
+        # Criar novo loop
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        # Fechar pool de conexões do engine global (pode estar no loop antigo)
+        from app.database import engine
+        try:
+            loop.run_until_complete(engine.dispose())
+        except Exception:
+            pass
+        
+        try:
+            loop.run_until_complete(_start_campaign_dispatch(UUID(campaign_id)))
+        finally:
+            # Cancelar todas tasks pendentes
+            try:
+                pending = asyncio.all_tasks(loop)
+                for task in pending:
+                    task.cancel()
+                if pending:
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            except Exception:
+                pass
+            
+            # Fechar loop e limpar
+            loop.close()
+            gc.collect()
+            
     except Exception as e:
         logger.exception(f"Erro no dispatch da campanha {campaign_id}: {e}")
         raise
-    finally:
-        # Aguardar todas as tarefas pendentes antes de fechar
-        try:
-            pending = asyncio.all_tasks(loop)
-            for task in pending:
-                task.cancel()
-            if pending:
-                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
-        except Exception:
-            pass
-        finally:
-            loop.close()
 
 
 async def _start_campaign_dispatch(campaign_id: UUID) -> None:
+    # Usar AsyncSessionLocal padrão - deve funcionar no novo event loop isolado
+    from app.database import AsyncSessionLocal
+    
     async with AsyncSessionLocal() as session:
         campaign = await session.get(Campaign, campaign_id)
         if campaign is None:
