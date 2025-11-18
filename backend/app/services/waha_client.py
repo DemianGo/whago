@@ -1,6 +1,6 @@
 """
-Cliente para integração com WAHA (WhatsApp HTTP API).
-Substitui o BaileysClient com funcionalidade equivalente.
+Cliente para integração com WAHA Plus (WhatsApp HTTP API).
+Gerencia sessões WhatsApp através de containers Docker dinâmicos.
 """
 
 from __future__ import annotations
@@ -334,6 +334,47 @@ class WAHAClient:
         except httpx.HTTPError as e:
             logger.error(f"Erro ao deletar sessão: {e}")
             return {"success": False, "session_id": session_id, "error": str(e)}
+
+    async def send_message(
+        self,
+        session_id: str,
+        to: str,
+        text: str,
+    ) -> dict[str, Any]:
+        """
+        Envia uma mensagem de texto via WAHA Plus.
+        
+        Args:
+            session_id: Alias da sessão (ex: chip_<uuid>)
+            to: Número de telefone no formato internacional (ex: 5511999999999)
+            text: Conteúdo da mensagem
+            
+        Returns:
+            Dict com resultado do envio
+        """
+        client = await self._get_client()
+        
+        try:
+            # Garantir formato correto do número (sem @ ou @s.whatsapp.net)
+            phone = to.replace("@s.whatsapp.net", "").replace("@", "")
+            
+            payload = {
+                "chatId": f"{phone}@s.whatsapp.net",
+                "text": text,
+            }
+            
+            response = await client.post(
+                f"/api/{session_id}/messages/text",
+                json=payload
+            )
+            response.raise_for_status()
+            
+            logger.info(f"Mensagem enviada com sucesso via sessão {session_id} para {phone}")
+            return response.json()
+            
+        except httpx.HTTPError as e:
+            logger.error(f"Erro ao enviar mensagem: {e}")
+            raise Exception(f"Falha ao enviar mensagem via WAHA: {e}") from e
 
     def _parse_proxy_url(self, proxy_url: str) -> dict[str, Any]:
         """Parse URL de proxy no formato protocol://[user:pass@]host:port"""

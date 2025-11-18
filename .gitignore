@@ -13,6 +13,9 @@ __pycache__/
 postgres_data/
 redis_data/
 
+# Legacy service (deprecated)
+baileys-service/
+
 # SSL certificates
 /etc/letsencrypt/
 letsencrypt/

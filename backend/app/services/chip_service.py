@@ -78,7 +78,6 @@ class ChipService:
         # ✅ NOVO: Verificar quota de proxy
         await check_proxy_quota(user, self.session)
 
-        fallback = False
         session_id: str | None = None
         proxy_url: str | None = None
 
@@ -92,7 +91,6 @@ class ChipService:
                 "created_via": "api",
                 "user_agent": user_agent,
                 "ip": ip_address,
-                "baileys_fallback": False,
             },
         )
         self.session.add(chip)
@@ -166,31 +164,32 @@ class ChipService:
             # ✅ Marcar extra_data como modificado para o SQLAlchemy detectar as mudanças
             from sqlalchemy.orm.attributes import flag_modified
             flag_modified(chip, "extra_data")
+            
+            # Atualizar chip com session_id real
+            chip.session_id = session_name
+            chip.extra_data["proxy_used"] = proxy_url is not None
+            
+            # ✅ Marcar extra_data como modificado novamente
+            flag_modified(chip, "extra_data")
+            await self.session.flush()
                 
         except Exception as exc:  # noqa: BLE001
+            # Rollback e deletar chip criado
+            await self.session.rollback()
             logger.error(
-                "Falha ao criar sessão WAHA para alias %s: %s. Aplicando fallback local.",
+                "Falha crítica ao criar sessão WAHA Plus para alias %s: %s",
                 payload.alias,
                 exc,
             )
-            fallback = True
-            session_id = f"fallback-{uuid4()}"
-
-        # Atualizar chip com session_id real
-        chip.session_id = session_id
-        chip.extra_data["waha_fallback"] = fallback
-        chip.extra_data["proxy_used"] = proxy_url is not None
-        
-        # ✅ Marcar extra_data como modificado para o SQLAlchemy detectar as mudanças
-        from sqlalchemy.orm.attributes import flag_modified
-        flag_modified(chip, "extra_data")
-        
-        await self.session.flush()
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Falha ao criar sessão WhatsApp. Tente novamente em alguns instantes."
+            ) from exc
 
         await self._add_event(
             chip,
             ChipEventType.SYSTEM,
-            f"Chip criado e aguardando QR (sessão {session_id}).",
+            f"Chip criado e aguardando QR (sessão {chip.session_id}).",
         )
 
         notifier = NotificationService(self.session)
@@ -199,7 +198,7 @@ class ChipService:
             title="Novo chip aguardando QR",
             message=f"O chip {payload.alias} foi criado e precisa ser conectado.",
             type_=NotificationType.INFO,
-            extra_data={"chip_id": str(chip.id), "session_id": session_id},
+            extra_data={"chip_id": str(chip.id), "session_id": chip.session_id},
             auto_commit=False,
         )
         audit = AuditService(self.session)
@@ -209,7 +208,7 @@ class ChipService:
             entity_type="chip",
             entity_id=str(chip.id),
             description=f"Chip {payload.alias} criado.",
-            extra_data={"session_id": session_id},
+            extra_data={"session_id": chip.session_id},
             ip_address=ip_address,
             user_agent=user_agent,
             auto_commit=False,

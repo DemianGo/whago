@@ -77,7 +77,6 @@ services:
     restart: always
     environment:
       PYTHONPATH: "/app"
-      BAILEYS_API_URL: "http://baileys:3030/api/v1"
       REDIS_URL: "redis://redis:6379/0"
       CELERY_BROKER_URL: "redis://redis:6379/1"
       CELERY_RESULT_BACKEND: "redis://redis:6379/2"

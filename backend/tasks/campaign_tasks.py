@@ -27,9 +27,10 @@ from app.models.campaign import (
     CampaignType,
     MessageStatus,
 )
+from app.models.chip import Chip
 from app.models.credit import CreditLedger, CreditSource
 from app.models.user import User
-from app.services.baileys_client import get_baileys_client
+from app.services.waha_container_manager import WahaContainerManager
 from app.services.webhook_service import WebhookEvent, WebhookService
 
 logger = logging.getLogger("whago.campaign.tasks")
@@ -256,14 +257,32 @@ async def _execute_send_message(message_id: UUID) -> bool:
         await session.commit()
 
         try:
-            baileys = get_baileys_client()
-            payload = {
-                "sessionId": str(message.chip_id),
-                "to": contact.phone_number,
-                "message": message.content,
-            }
-            response = await baileys.send_message(payload)
-            logger.debug("Resposta Baileys %s", response)
+            # Obter container WAHA Plus do usuário do chip
+            chip = await session.get(Chip, message.chip_id)
+            if not chip:
+                raise Exception("Chip não encontrado")
+            
+            container_manager = WahaContainerManager()
+            waha_container = await container_manager.get_user_container(str(chip.user_id))
+            
+            if not waha_container:
+                raise Exception("Container WAHA Plus não encontrado para o usuário")
+            
+            # Obter cliente WAHA Plus
+            from app.services.waha_client import WAHAClient
+            waha_client = WAHAClient(
+                base_url=f"http://{waha_container['container_name']}:3000",
+                api_key="seu_api_key_waha"  # TODO: Usar configuração
+            )
+            
+            # Enviar mensagem via WAHA Plus
+            session_name = chip.extra_data.get("waha_session", f"chip_{chip.id}")
+            response = await waha_client.send_message(
+                session_id=session_name,
+                to=contact.phone_number,
+                text=message.content
+            )
+            logger.debug("Resposta WAHA Plus %s", response)
 
             message.status = MessageStatus.SENT
             message.sent_at = datetime.now(timezone.utc)
