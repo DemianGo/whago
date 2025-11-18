@@ -90,6 +90,7 @@ services:
     volumes:
       - ./backend:/app
       - ./backend/.env:/app/.env
+      - /var/run/docker.sock:/var/run/docker.sock
     command: >
       sh -c "celery -A tasks.celery_app worker --loglevel=info --concurrency=1"
 

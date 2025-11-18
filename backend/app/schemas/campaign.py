@@ -75,6 +75,7 @@ class CampaignSummary(BaseModel):
     created_at: datetime
     started_at: Optional[datetime]
     completed_at: Optional[datetime]
+    settings: Optional[CampaignSettings | dict] = None
 
     model_config = {"from_attributes": True}
 

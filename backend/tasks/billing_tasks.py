@@ -20,5 +20,9 @@ async def _run_cycle() -> None:
 @shared_task(name="billing.process_subscription_cycle")
 def process_subscription_cycle_task() -> None:
     """Executa as rotinas de cobrança recorrente e downgrades pendentes."""
-
-    asyncio.run(_run_cycle())
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(_run_cycle())
+    finally:
+        loop.close()

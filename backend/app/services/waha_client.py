@@ -359,12 +359,13 @@ class WAHAClient:
             phone = to.replace("@s.whatsapp.net", "").replace("@", "")
             
             payload = {
-                "chatId": f"{phone}@s.whatsapp.net",
+                "session": session_id,
+                "chatId": f"{phone}@c.us",
                 "text": text,
             }
             
             response = await client.post(
-                f"/api/{session_id}/messages/text",
+                "/api/sendText",
                 json=payload
             )
             response.raise_for_status()

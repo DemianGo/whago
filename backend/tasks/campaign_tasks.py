@@ -27,7 +27,7 @@ from app.models.campaign import (
     CampaignType,
     MessageStatus,
 )
-from app.models.chip import Chip
+from app.models.chip import Chip, ChipStatus
 from app.models.credit import CreditLedger, CreditSource
 from app.models.user import User
 from app.services.waha_container_manager import WahaContainerManager
@@ -262,6 +262,10 @@ async def _execute_send_message(message_id: UUID) -> bool:
             if not chip:
                 raise Exception("Chip não encontrado")
             
+            # Verificar se o chip está conectado
+            if chip.status != ChipStatus.CONNECTED:
+                raise Exception(f"Chip não está conectado (status: {chip.status})")
+            
             container_manager = WahaContainerManager()
             waha_container = await container_manager.get_user_container(str(chip.user_id))
             
@@ -271,18 +275,22 @@ async def _execute_send_message(message_id: UUID) -> bool:
             # Obter cliente WAHA Plus
             from app.services.waha_client import WAHAClient
             waha_client = WAHAClient(
-                base_url=f"http://{waha_container['container_name']}:3000",
-                api_key="seu_api_key_waha"  # TODO: Usar configuração
+                base_url=waha_container['base_url'],
+                api_key=waha_container['api_key']
             )
             
             # Enviar mensagem via WAHA Plus
             session_name = chip.extra_data.get("waha_session", f"chip_{chip.id}")
-            response = await waha_client.send_message(
-                session_id=session_name,
-                to=contact.phone_number,
-                text=message.content
-            )
-            logger.debug("Resposta WAHA Plus %s", response)
+            try:
+                response = await waha_client.send_message(
+                    session_id=session_name,
+                    to=contact.phone_number,
+                    text=message.content
+                )
+                logger.debug("Resposta WAHA Plus %s", response)
+            finally:
+                # Fechar conexões HTTP
+                await waha_client.close()
 
             message.status = MessageStatus.SENT
             message.sent_at = datetime.now(timezone.utc)
@@ -337,7 +345,7 @@ async def _execute_send_message(message_id: UUID) -> bool:
         except Exception as exc:  # noqa: BLE001
             logger.exception("Falha ao enviar mensagem %s: %s", message_id, exc)
             message.status = MessageStatus.FAILED
-            message.failure_reason = str(exc)
+            message.failure_reason = str(exc)[:250]  # Trunca para 250 chars (limite DB: 255)
             campaign.failed_count += 1
             await session.commit()
             _publish_update(
@@ -424,7 +432,26 @@ async def _finalize_campaign_if_complete(campaign_id: UUID) -> None:
 
 @shared_task(name="campaign.start_dispatch")
 def start_campaign_dispatch(campaign_id: str) -> None:
-    asyncio.run(_start_campaign_dispatch(UUID(campaign_id)))
+    """Inicia o dispatch de uma campanha (Celery task síncrona)."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(_start_campaign_dispatch(UUID(campaign_id)))
+    except Exception as e:
+        logger.exception(f"Erro no dispatch da campanha {campaign_id}: {e}")
+        raise
+    finally:
+        # Aguardar todas as tarefas pendentes antes de fechar
+        try:
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        except Exception:
+            pass
+        finally:
+            loop.close()
 
 
 async def _start_campaign_dispatch(campaign_id: UUID) -> None:
@@ -468,7 +495,26 @@ async def _start_campaign_dispatch(campaign_id: UUID) -> None:
 
 @shared_task(name="campaign.resume_dispatch")
 def resume_campaign_dispatch(campaign_id: str) -> None:
-    asyncio.run(_resume_campaign_dispatch(UUID(campaign_id)))
+    """Retoma o dispatch de uma campanha (Celery task síncrona)."""
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(_resume_campaign_dispatch(UUID(campaign_id)))
+    except Exception as e:
+        logger.exception(f"Erro ao retomar dispatch da campanha {campaign_id}: {e}")
+        raise
+    finally:
+        # Aguardar todas as tarefas pendentes antes de fechar
+        try:
+            pending = asyncio.all_tasks(loop)
+            for task in pending:
+                task.cancel()
+            if pending:
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+        except Exception:
+            pass
+        finally:
+            loop.close()
 
 
 async def _resume_campaign_dispatch(campaign_id: UUID) -> None:

@@ -35,7 +35,12 @@ def monitor_proxy_usage():
     Coleta estatísticas via API dos provedores e registra consumo.
     """
     logger.info("Iniciando monitoramento de uso de proxies...")
-    asyncio.run(_async_monitor_proxy_usage())
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(_async_monitor_proxy_usage())
+    finally:
+        loop.close()
     logger.info("Monitoramento de proxies concluído.")
 
 
@@ -208,7 +213,12 @@ def health_check_proxies():
     Executada a cada 15 minutos.
     """
     logger.info("Iniciando health check de proxies...")
-    asyncio.run(_async_health_check_proxies())
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    try:
+        loop.run_until_complete(_async_health_check_proxies())
+    finally:
+        loop.close()
     logger.info("Health check de proxies concluído.")
 
 

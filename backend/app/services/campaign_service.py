@@ -129,7 +129,15 @@ class CampaignService:
             scheduled_for=data.scheduled_for,
         )
         self.session.add(campaign)
-        await self.session.flush()
+        try:
+            await self.session.flush()
+        except Exception as e:
+            if "uq_campaigns_user_name" in str(e):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"Você já possui uma campanha com o nome '{data.name}'. Por favor, escolha outro nome.",
+                )
+            raise
         notifier = NotificationService(self.session)
         await notifier.create(
             user_id=db_user.id,
@@ -220,8 +228,17 @@ class CampaignService:
 
         content = await file.read()
         decoded = content.decode("utf-8-sig")
-        reader = csv.DictReader(io.StringIO(decoded))
-
+        
+        # ✅ Detectar se o CSV tem cabeçalho válido
+        lines = decoded.strip().split('\n')
+        has_header = False
+        
+        if lines:
+            first_line = lines[0].lower()
+            # Verificar se a primeira linha contém palavras-chave de cabeçalho
+            if any(keyword in first_line for keyword in ['numero', 'number', 'telefone', 'phone', 'nome', 'name']):
+                has_header = True
+        
         result_existing = await self.session.execute(
             select(func.count(CampaignContact.id)).where(CampaignContact.campaign_id == campaign.id)
         )
@@ -235,55 +252,104 @@ class CampaignService:
         seen_numbers: set[str] = set()
         detected_variables: set[str] = set()
 
-        for row in reader:
-            total += 1
-            number = (row.get("numero") or row.get("number") or "").strip()
-            if not number:
-                invalid += 1
-                continue
+        if has_header:
+            # CSV com cabeçalho - usar DictReader
+            reader = csv.DictReader(io.StringIO(decoded))
+            
+            for row in reader:
+                total += 1
+                number = (row.get("numero") or row.get("number") or row.get("telefone") or row.get("phone") or "").strip()
+                if not number:
+                    invalid += 1
+                    continue
+                
+                normalized = self._normalize_phone(number)
+                if not normalized:
+                    invalid += 1
+                    continue
 
-            normalized = self._normalize_phone(number)
-            if not normalized:
-                invalid += 1
-                continue
+                if normalized in seen_numbers:
+                    duplicated += 1
+                    continue
 
-            if normalized in seen_numbers:
-                duplicated += 1
-                continue
+                if contacts_limit is not None and existing_contacts + valid + 1 > contacts_limit:
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=(
+                            f"Limite de {contacts_limit} contatos por campanha atingido para o seu plano. "
+                            "Considere remover contatos ou fazer upgrade de plano."
+                        ),
+                    )
 
-            if contacts_limit is not None and existing_contacts + valid + 1 > contacts_limit:
-                raise HTTPException(
-                    status_code=status.HTTP_400_BAD_REQUEST,
-                    detail=(
-                        f"Limite de {contacts_limit} contatos por campanha atingido para o seu plano. "
-                        "Considere remover contatos ou fazer upgrade de plano."
-                    ),
+                seen_numbers.add(normalized)
+                name = (row.get("nome") or row.get("name") or "").strip() or None
+                company = (row.get("empresa") or row.get("company") or "").strip() or None
+                variables = {
+                    key: value
+                    for key, value in row.items()
+                    if key not in {"numero", "number", "telefone", "phone", "nome", "name", "empresa", "company"}
+                }
+                variables = {k: v for k, v in variables.items() if v}
+                if variables:
+                    detected_variables.update(variables.keys())
+
+                contact = CampaignContact(
+                    campaign_id=campaign.id,
+                    phone_number=normalized,
+                    name=name,
+                    company=company,
+                    variables=variables or None,
                 )
+                self.session.add(contact)
+                valid += 1
 
-            seen_numbers.add(normalized)
-            name = (row.get("nome") or row.get("name") or "").strip() or None
-            company = (row.get("empresa") or row.get("company") or "").strip() or None
-            variables = {
-                key: value
-                for key, value in row.items()
-                if key not in {"numero", "number", "nome", "name", "empresa", "company"}
-            }
-            variables = {k: v for k, v in variables.items() if v}
-            if variables:
-                detected_variables.update(variables.keys())
+                if len(preview) < 10:
+                    preview.append({"numero": normalized, "nome": name, "empresa": company})
+        else:
+            # CSV sem cabeçalho - processar cada campo como número de telefone
+            reader = csv.reader(io.StringIO(decoded))
+            
+            for row in reader:
+                # Cada campo da linha pode ser um número de telefone
+                for field in row:
+                    total += 1
+                    number = field.strip()
+                    if not number:
+                        invalid += 1
+                        continue
+                    
+                    normalized = self._normalize_phone(number)
+                    if not normalized:
+                        invalid += 1
+                        continue
 
-            contact = CampaignContact(
-                campaign_id=campaign.id,
-                phone_number=normalized,
-                name=name,
-                company=company,
-                variables=variables or None,
-            )
-            self.session.add(contact)
-            valid += 1
+                    if normalized in seen_numbers:
+                        duplicated += 1
+                        continue
 
-            if len(preview) < 10:
-                preview.append({"numero": normalized, "nome": name, "empresa": company})
+                    if contacts_limit is not None and existing_contacts + valid + 1 > contacts_limit:
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=(
+                                f"Limite de {contacts_limit} contatos por campanha atingido para o seu plano. "
+                                "Considere remover contatos ou fazer upgrade de plano."
+                            ),
+                        )
+
+                    seen_numbers.add(normalized)
+                    
+                    contact = CampaignContact(
+                        campaign_id=campaign.id,
+                        phone_number=normalized,
+                        name=None,
+                        company=None,
+                        variables=None,
+                    )
+                    self.session.add(contact)
+                    valid += 1
+
+                    if len(preview) < 10:
+                        preview.append({"numero": normalized, "nome": None, "empresa": None})
 
         result_total = await self.session.execute(
             select(func.count(CampaignContact.id)).where(CampaignContact.campaign_id == campaign.id)
