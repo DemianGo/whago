@@ -12,16 +12,16 @@ from decimal import Decimal
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..app.database import AsyncSessionLocal
-from ..app.models.proxy import (
+from app.database import AsyncSessionLocal
+from app.models.proxy import (
     ProxyProvider,
     Proxy,
     ChipProxyAssignment,
     ProxyUsageLog,
     UserProxyCost,
 )
-from ..app.models.chip import Chip, ChipStatus
-from ..app.services.smartproxy_client import SmartproxyClient
+from app.models.chip import Chip, ChipStatus
+from app.services.smartproxy_client import SmartproxyClient
 from .celery_app import app
 
 logger = logging.getLogger("whago.proxy_monitor")

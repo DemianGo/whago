@@ -8,9 +8,9 @@ import logging
 from sqlalchemy import select
 from celery import shared_task
 
-from ..database import AsyncSessionLocal
-from ..models.chip import Chip, ChipStatus
-from ..services.baileys_client import get_baileys_client
+from app.database import AsyncSessionLocal
+from app.models.chip import Chip, ChipStatus
+from app.services.baileys_client import get_baileys_client
 
 logger = logging.getLogger("whago.cleanup")
 
