@@ -103,6 +103,7 @@ class ChipEventType(str, enum.Enum):
     STATUS_CHANGE = "status_change"
     MESSAGE_SENT = "message_sent"
     MESSAGE_FAILED = "message_failed"
+    RECONNECT = "reconnect"
     SYSTEM = "system"
 
 

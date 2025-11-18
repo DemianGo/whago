@@ -111,6 +111,22 @@ async def get_chip_qr(
 
 
 @router.post(
+    "/{chip_id}/reconnect",
+    response_model=ChipResponse,
+)
+async def reconnect_chip(
+    chip_id: UUID,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> ChipResponse:
+    """Reconecta um chip desconectado, gerando novo QR Code."""
+    user_agent, client_ip = _context_from_request(request)
+    service = ChipService(session)
+    return await service.reconnect_chip(current_user, chip_id, user_agent=user_agent, ip_address=client_ip)
+
+
+@router.post(
     "/{chip_id}/disconnect",
     response_model=ChipResponse,
 )

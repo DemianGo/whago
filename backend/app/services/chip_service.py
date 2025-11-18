@@ -275,6 +275,91 @@ class ChipService:
         await self.session.delete(chip)
         await self.session.commit()
 
+    async def reconnect_chip(
+        self,
+        user: User,
+        chip_id: UUID,
+        *,
+        user_agent: str | None = None,
+        ip_address: str | None = None,
+    ) -> ChipResponse:
+        """
+        Reconecta um chip desconectado:
+        1. Deleta sessão WAHA antiga (se existir)
+        2. Cria nova sessão WAHA
+        3. Atualiza status para WAITING_QR
+        4. Registra eventos
+        """
+        chip = await self._get_user_chip(user, chip_id)
+        
+        # Obter cliente WAHA do container do usuário
+        waha_client = await self._get_waha_client_for_user(str(user.id))
+        session_name = chip.extra_data.get("waha_session", f"chip_{chip.id}")
+        
+        # 1. Deletar sessão antiga (se existir)
+        try:
+            await waha_client.delete_session(session_name)
+            logger.info(f"Sessão WAHA antiga deletada: {session_name}")
+        except Exception as e:
+            logger.warning(f"Sessão antiga não encontrada ou erro ao deletar: {e}")
+        
+        # 2. Obter proxy (pode já existir ou atribuir novo)
+        proxy_service = ProxyService(self.session)
+        proxy_url = await proxy_service.get_chip_proxy_url(chip.id)
+        
+        if not proxy_url:
+            # Se não tem proxy, atribuir novo
+            proxy_url = await proxy_service.assign_proxy_to_chip(chip)
+            logger.info(f"Novo proxy atribuído ao chip {chip.id}")
+        
+        # 3. Criar nova sessão WAHA
+        await waha_client.create_session(
+            alias=session_name,
+            proxy_url=proxy_url,
+        )
+        logger.info(f"Nova sessão WAHA criada: {session_name}")
+        
+        # 4. Atualizar status DO CHIP
+        chip.status = ChipStatus.WAITING_QR
+        chip.phone_number = None
+        chip.connected_at = None
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(chip, "extra_data")
+        await self.session.flush()  # Persistir mudanças antes de adicionar eventos
+        
+        await self._add_event(
+            chip,
+            ChipEventType.STATUS_CHANGE,
+            "Chip reconectado - aguardando QR Code.",
+        )
+        
+        notifier = NotificationService(self.session)
+        await notifier.create(
+            user_id=user.id,
+            title="Chip reconectando",
+            message=f"O chip {chip.alias} está aguardando novo QR Code.",
+            type_=NotificationType.INFO,
+            extra_data={"chip_id": str(chip.id)},
+            auto_commit=False,
+        )
+        
+        audit = AuditService(self.session)
+        await audit.record(
+            user_id=user.id,
+            action="chip.reconnect",
+            entity_type="chip",
+            entity_id=str(chip.id),
+            description=f"Chip {chip.alias} reconectado pelo usuário.",
+            extra_data={"session_name": session_name},
+            ip_address=ip_address,
+            user_agent=user_agent,
+            auto_commit=False,
+        )
+        
+        await self.session.commit()
+        await self.session.refresh(chip)
+        return ChipResponse.model_validate(chip)
+
     async def disconnect_chip(
         self,
         user: User,
