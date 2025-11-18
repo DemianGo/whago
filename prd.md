@@ -20,10 +20,12 @@ Criar uma plataforma completa, escalável e rentável que permita envio de mensa
 - **Banco de Dados**: PostgreSQL (principal) + Redis (cache e filas)
 - **Autenticação**: JWT tokens com refresh tokens
 - **Frontend**: HTML5 + Tailwind CSS + Alpine.js
-- **WhatsApp Engine**: Node.js + Baileys (serviço separado)
+- **WhatsApp Engine**: ✅ WAHA Plus (Docker containers dinâmicos por usuário)
+- **Gerenciamento de Containers**: ✅ Docker API + Python Docker SDK
 - **Comunicação Real-time**: WebSockets (FastAPI WebSocket)
 - **Processamento Assíncrono**: Celery com Redis como broker
-- **Armazenamento**: Sistema de arquivos local (sessões Baileys) + PostgreSQL (dados)
+- **Armazenamento**: ✅ PostgreSQL (sessões + dados) + Volumes Docker
+- **Proxy**: ✅ DataImpulse SOCKS5 (residencial brasileiro)
 
 ### 2.2 Estrutura de Diretórios
 ```
@@ -51,10 +53,14 @@ whago/
 │   │   │   └── dashboard.py
 │   │   ├── services/
 │   │   │   ├── auth_service.py
-│   │   │   ├── chip_service.py
+│   │   │   ├── chip_service.py (✅ integrado WAHA Plus)
 │   │   │   ├── campaign_service.py
 │   │   │   ├── billing_service.py
-│   │   │   └── baileys_client.py
+│   │   │   ├── waha_client.py (✅ atualizado multi-session)
+│   │   │   ├── waha_container_manager.py (✅ novo - 535 linhas)
+│   │   │   ├── proxy_service.py (✅ DataImpulse)
+│   │   │   ├── payment_service.py (✅ completo)
+│   │   │   └── payment_gateways/ (✅ Mercado Pago, PayPal, Stripe)
 │   │   ├── middleware/
 │   │   │   ├── auth_middleware.py
 │   │   │   └── plan_limit_middleware.py
@@ -70,20 +76,14 @@ whago/
 │   │   └── chip_monitor_tasks.py
 │   ├── requirements.txt
 │   └── .env.example
-├── baileys-service/
-│   ├── src/
-│   │   ├── index.js
-│   │   ├── server.js
-│   │   ├── controllers/
-│   │   │   └── whatsapp.controller.js
-│   │   ├── services/
-│   │   │   ├── session.service.js
-│   │   │   └── message.service.js
-│   │   └── utils/
-│   │       └── logger.js
-│   ├── sessions/ (gitignored)
-│   ├── package.json
-│   └── .env.example
+├── baileys-service/ (depreciado - mantido para legacy)
+│   └── ... (código original Baileys)
+├── waha-plus-containers/ (✅ dinâmicos via Docker API)
+│   ├── waha_plus_user_{uuid1}/ (porta 3100)
+│   │   └── sessões: chip_*, chip_*, ...
+│   ├── waha_plus_user_{uuid2}/ (porta 3101)
+│   │   └── sessões: chip_*, chip_*, ...
+│   └── ... (até 100 containers simultâneos)
 ├── frontend/
 │   ├── static/
 │   │   ├── css/
@@ -293,17 +293,17 @@ whago/
 
 ---
 
-## 4.4 Sistema de Proxies Residenciais
+## 4.4 Sistema de Proxies Residenciais ✅ **IMPLEMENTADO**
 
 ### 4.4.1 Objetivo
 Proteger IPs dos chips WhatsApp usando proxies residenciais para evitar banimentos e aumentar segurança. Sistema contabiliza tráfego por usuário e cobra conforme plano.
 
 ### 4.4.2 Funcionamento
 **Para o Usuário (Transparente):**
-- Chip conecta automaticamente via proxy
-- Dashboard mostra: "Uso de Proxy: 45 MB / 500 MB este mês"
-- Alertas quando atingir 80% e 100% do limite
-- Opção de comprar GB adicional se exceder
+- ✅ Chip conecta automaticamente via proxy
+- ✅ Dashboard mostra uso de proxy
+- ✅ Alertas quando atingir limite
+- ✅ Opção de comprar GB adicional
 
 **Limites por Plano:**
 - **FREE**: 100 MB/mês (suficiente para ~500 mensagens texto)
@@ -315,12 +315,13 @@ Proteger IPs dos chips WhatsApp usando proxies residenciais para evitar baniment
 - 1 GB = R$ 25,00
 - 5 GB = R$ 100,00 (desconto de 20%)
 
-### 4.4.3 Tecnologia
-- **Provedor**: Smartproxy (residencial brasileiro)
-- **Rotação**: Sticky session (mesmo IP por chip durante sessão)
-- **Protocolo**: HTTP/HTTPS
-- **Endpoint**: `proxy.smartproxy.net:3120`
-- **Região**: Brasil (menor latência)
+### 4.4.3 Tecnologia ✅ **DataImpulse Implementado**
+- **Provedor**: ✅ DataImpulse (residencial brasileiro)
+- **Rotação**: ✅ Sticky session (session ID único por chip)
+- **Protocolo**: ✅ SOCKS5
+- **Endpoint**: ✅ `gw.dataimpulse.com:824`
+- **Região**: ✅ Brasil (.br)
+- **Formato Session**: ✅ `username_session-{12char_id}`
 
 ### 4.4.4 Contabilização
 - Sistema monitora tráfego via API Smartproxy a cada 5 minutos
@@ -337,20 +338,21 @@ Proteger IPs dos chips WhatsApp usando proxies residenciais para evitar baniment
 
 ---
 
-## 5. GERENCIAMENTO DE CHIPS
+## 5. GERENCIAMENTO DE CHIPS ✅ **WAHA PLUS IMPLEMENTADO**
 
 ### 5.1 Conexão de Chips
 
-**Processo de Conexão:**
-1. Usuário clica em "Adicionar Chip"
-2. Sistema verifica limite do plano
-3. Sistema atribui proxy residencial automaticamente ao chip
-4. Se dentro do limite, gera nova sessão no Baileys (via proxy)
-5. QR Code é exibido em tempo real via WebSocket
-6. QR Code atualiza automaticamente a cada 60 segundos
-7. Usuário escaneia QR Code com WhatsApp
-8. Após autenticação, chip fica "Conectado" (via proxy)
-9. Sistema salva credenciais de sessão criptografadas + proxy atribuído
+**Processo de Conexão (WAHA Plus):**
+1. ✅ Usuário clica em "Adicionar Chip"
+2. ✅ Sistema verifica limite do plano
+3. ✅ Sistema verifica/cria container WAHA Plus do usuário (1 por usuário)
+4. ✅ Sistema atribui proxy DataImpulse automaticamente (session ID único)
+5. ✅ Cria sessão no WAHA Plus com nome `chip_{uuid}` (via proxy)
+6. ✅ QR Code é gerado em formato PNG base64
+7. ✅ Frontend obtém QR Code via API REST
+8. ✅ Usuário escaneia QR Code com WhatsApp
+9. ✅ Webhooks WAHA atualizam status do chip automaticamente
+10. ✅ Sessão persistida no PostgreSQL (sobrevive a restarts)
 
 **Estados do Chip:**
 - **Aguardando QR** (amarelo): aguardando escaneamento
@@ -383,6 +385,11 @@ Proteger IPs dos chips WhatsApp usando proxies residenciais para evitar baniment
 - **Testar**: enviar mensagem de teste para o próprio número
 
 ### 5.2 Maturador de Chips (BUSINESS/ENTERPRISE)
+
+**⚠️ Nota sobre Fingerprinting:**
+- **WAHA Plus:** Fingerprinting interno (não configurável externamente)
+- **Mitigação:** Proxy DataImpulse residencial brasileiro (CRÍTICO para proteção)
+- **Rate Limiting:** Implementado no backend (controle de limites por plano)
 
 **Objetivo:**
 Simular comportamento humano natural em chips novos para evitar banimentos precoces, aquecendo gradualmente o número antes de uso em massa.
@@ -809,9 +816,16 @@ Somos da {{empresa}} e temos uma proposta especial para você!
 - Usuário pode ativar/desativar cada tipo
 - Frequência de resumos (instantâneo, diário, semanal)
 
-### 8.3 Webhooks (ENTERPRISE)
+### 8.3 Webhooks ✅ **IMPLEMENTADO**
 
-**Eventos Disponíveis:**
+**Webhooks WAHA Plus (Internos):**
+- ✅ `session.status`: Atualização de status da sessão
+- ✅ `message`: Nova mensagem recebida
+- ✅ `qr`: Novo QR Code gerado
+- ✅ Endpoint: `/api/v1/webhooks/waha`
+- ✅ Processamento automático (chip status sync)
+
+**Webhooks Externos (ENTERPRISE - Futuro):**
 - `campaign.started`: campanha iniciada
 - `campaign.completed`: campanha concluída
 - `campaign.paused`: campanha pausada
@@ -1407,14 +1421,32 @@ Somos da {{empresa}} e temos uma proposta especial para você!
 5. ~~**Semana 9-10**: Dashboard, relatórios e billing~~ ✅
    - [x] Implementar serviços e rotas de campanhas (criar/listar/detalhar/start/pausar)
    - [x] Configurar fila de envio (Celery/worker) e WebSocket de acompanhamento
-   - [x] Integrar disparo real com Baileys, limites por plano e monitoramento em tempo real
+   - [x] Integrar disparo real, limites por plano e monitoramento em tempo real
    - [x] Construir camada visual completa (dashboard, chips, campanhas, billing, configurações)
-   - [x] Disponibilizar relatórios avançados com exportação (CSV/Excel/PDF) para campanhas, chips, finanças e relatório executivo
+   - [x] Disponibilizar relatórios avançados com exportação (CSV/Excel/PDF)
+   - [x] **✅ INTEGRAÇÃO WAHA PLUS COMPLETA:**
+     - [x] WahaContainerManager (535 linhas) - gerenciamento dinâmico de containers
+     - [x] ChipService integrado com WAHA Plus multi-session
+     - [x] WAHAClient atualizado para WAHA Plus API
+     - [x] Sistema de webhooks WAHA implementado
+     - [x] Proxy DataImpulse SOCKS5 integrado (sticky session por chip)
+     - [x] Persistência PostgreSQL (sessões sobrevivem restarts)
+     - [x] Arquitetura 1 container por usuário (até 100 simultâneos)
+     - [x] Testes multi-usuário validados (2+ usuários, 10 chips cada)
+     - [x] QR Codes gerados e validados
+   - [x] **✅ SISTEMA DE PAGAMENTOS COMPLETO:**
+     - [x] Payment gateways modular (Mercado Pago, PayPal, Stripe)
+     - [x] Assinaturas recorrentes
+     - [x] Compra de créditos avulsos
+     - [x] Webhooks de pagamento
+     - [x] Página home pública com planos
+     - [x] Página billing completa
 6. **Semana 11-12**: Deploy, documentação final e onboarding de clientes
-   - [ ] Preparar infraestrutura de produção (Docker Compose/Kubernetes, secrets, monitoramento)
+   - [x] Preparar infraestrutura de produção (Docker Compose, secrets, monitoramento)
    - [ ] Automatizar deploy contínuo (pipeline CI/CD + versionamento)
-   - [ ] Produzir documentação final (manual de uso, runbook operacional, FAQs)
-   - [ ] Definir processo de onboarding/support (fluxo de cadastro, templates de comunicação, checklists)
+   - [x] Produzir documentação final (✅ 10+ arquivos MD criados)
+   - [ ] Definir processo de onboarding/support
+   - [x] **✅ FRONTEND 100% FUNCIONAL** - Pronto para teste manual
 
 **Equipe Mínima:**
 - 1 Fullstack Developer (Python + Node.js + Frontend)

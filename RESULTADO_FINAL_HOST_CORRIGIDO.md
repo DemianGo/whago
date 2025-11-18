@@ -167,3 +167,4 @@ docker logs whago-baileys 2>&1 | tail -30
 **Status:** ✅ Proxy validado, pronto para testar no Baileys  
 **Confiança:** 99% que funcionará com a correção
 
+

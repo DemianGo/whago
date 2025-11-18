@@ -271,3 +271,4 @@ docker logs whago-baileys -f | grep -E "QR|fingerprint|Proxy"
 **Status Final:** ✅ Sistema 100% pronto - Aguardando proxy com suporte WebSocket
 
 
+

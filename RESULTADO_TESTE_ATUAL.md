@@ -325,3 +325,4 @@ docker exec whago-baileys rm -rf /app/sessions/*
 **Status:** ⚠️ Aguardando configuração de proxy mobile para teste final
 
 
+

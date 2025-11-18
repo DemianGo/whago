@@ -355,3 +355,4 @@ docker exec whago-baileys rm -rf /app/sessions/*
 **Status:** ✅ Fingerprints FUNCIONANDO | ⚠️ Aguardando resolução do erro 405
 
 
+

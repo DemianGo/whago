@@ -235,3 +235,4 @@ WHERE is_active = true;
 **Última atualização:** 17/11/2025 03:05 UTC
 
 
+

@@ -333,3 +333,4 @@ rm -rf evolution-test
 **Status:** ⏸️ Aguardando proxy válido  
 **Pronto para:** ✅ Executar imediatamente com credenciais válidas
 
+

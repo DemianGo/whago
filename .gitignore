@@ -1,0 +1,36 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Env
+.env
+*.env
+.env.*
+
+# Docker data volumes
+postgres_data/
+redis_data/
+
+# SSL certificates
+/etc/letsencrypt/
+letsencrypt/
+certbot/
+var/www/certbot/
+
+# Logs
+*.log
+logs/
+*.sqlite
+
+# Editor / IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Node (if someday you add React frontend builds)
+node_modules/
+dist/
+build/

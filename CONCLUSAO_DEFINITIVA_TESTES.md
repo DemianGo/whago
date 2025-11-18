@@ -388,3 +388,4 @@ curl -X POST http://localhost:3030/api/sessions/create \
 **Ação recomendada:** Contratar Smartproxy AGORA  
 **Confiança:** 99.9% que funcionará imediatamente
 
+

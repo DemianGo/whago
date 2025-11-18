@@ -223,3 +223,4 @@ curl -X POST http://localhost:3030/api/sessions/create \
 **Conclusão:** DataImpulse incompatível com WhatsApp  
 **Ação:** Contratar Smartproxy IMEDIATAMENTE
 
+

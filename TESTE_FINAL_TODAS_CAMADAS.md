@@ -214,3 +214,4 @@ docker-compose restart baileys
 **Status:** Sistema 100% pronto - Aguardando proxy válido
 
 
+
