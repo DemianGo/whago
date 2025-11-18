@@ -192,32 +192,32 @@ class WAHAClient:
 
     async def get_qr_code(self, session_id: str) -> dict[str, Any]:
         """
-        Obtém o QR Code de uma sessão.
+        Obtém o QR Code de uma sessão WAHA Plus.
         
         Args:
-            session_id: ID da sessão (format: waha_xxxxx)
+            session_id: Alias da sessão (ex: chip_<uuid>)
             
         Returns:
             Dict com qr_code (base64), status, etc.
         """
         client = await self._get_client()
         
-        # Extrair nome da sessão WAHA (sempre "default" no Core)
-        waha_session = "default"
+        # ✅ WAHA Plus: usar o session_id (alias) passado como parâmetro
+        # Cada chip tem seu próprio alias único (chip_<uuid>)
         
         try:
             # Verificar status da sessão
-            response = await client.get(f"/api/sessions/{waha_session}")
+            response = await client.get(f"/api/sessions/{session_id}")
             response.raise_for_status()
             session_data = response.json()
             
             status = session_data.get("status", "UNKNOWN")
             
             if status == "SCAN_QR_CODE":
-                # ✅ WAHA Core TEM endpoint de QR Code! Retorna PNG
+                # ✅ WAHA Plus: endpoint de QR Code retorna PNG
                 try:
                     import base64
-                    qr_response = await client.get(f"/api/{waha_session}/auth/qr")
+                    qr_response = await client.get(f"/api/{session_id}/auth/qr")
                     qr_response.raise_for_status()
                     
                     # Converter PNG para base64
@@ -264,19 +264,19 @@ class WAHAClient:
 
     async def get_session_status(self, session_id: str) -> dict[str, Any]:
         """
-        Obtém status de uma sessão.
+        Obtém status de uma sessão WAHA Plus.
         
         Args:
-            session_id: ID da sessão
+            session_id: Alias da sessão (ex: chip_<uuid>)
             
         Returns:
             Dict com status, dados da conexão, etc.
         """
         client = await self._get_client()
-        waha_session = "default"
         
+        # ✅ WAHA Plus: usar o session_id (alias) correto
         try:
-            response = await client.get(f"/api/sessions/{waha_session}")
+            response = await client.get(f"/api/sessions/{session_id}")
             response.raise_for_status()
             data = response.json()
             
@@ -308,24 +308,24 @@ class WAHAClient:
 
     async def delete_session(self, session_id: str) -> dict[str, Any]:
         """
-        Deleta uma sessão.
+        Deleta uma sessão WAHA Plus.
         
         Args:
-            session_id: ID da sessão
+            session_id: Alias da sessão (ex: chip_<uuid>)
             
         Returns:
             Dict com resultado da operação
         """
         client = await self._get_client()
-        waha_session = "default"
         
+        # ✅ WAHA Plus: usar o session_id (alias) correto
         try:
             # Primeiro parar
-            await self._stop_session(waha_session)
+            await self._stop_session(session_id)
             await asyncio.sleep(2)
             
             # Depois deletar
-            response = await client.delete(f"/api/sessions/{waha_session}")
+            response = await client.delete(f"/api/sessions/{session_id}")
             response.raise_for_status()
             
             logger.info(f"Sessão '{session_id}' deletada com sucesso")

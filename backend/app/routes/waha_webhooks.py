@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from uuid import UUID
 
 from fastapi import APIRouter, Request, status, Depends
 from sqlalchemy import select
@@ -47,14 +48,21 @@ async def receive_waha_webhook(
         # Extrair chip_id da sessão (formato: chip_{uuid})
         chip_id_str = session_name.replace("chip_", "")
         
+        # Converter para UUID
+        try:
+            chip_uuid = UUID(chip_id_str)
+        except ValueError:
+            logger.error(f"Chip ID inválido (não é UUID): {chip_id_str} | Session: {session_name}")
+            return {"status": "error", "reason": "invalid_chip_id"}
+        
         # Buscar chip
         result = await db.execute(
-            select(Chip).where(Chip.id == chip_id_str)
+            select(Chip).where(Chip.id == chip_uuid)
         )
         chip = result.scalar_one_or_none()
         
         if not chip:
-            logger.warning(f"Chip não encontrado: {chip_id_str}")
+            logger.warning(f"Chip não encontrado: {chip_uuid}")
             return {"status": "ignored", "reason": "chip_not_found"}
         
         # Atualizar status baseado no evento

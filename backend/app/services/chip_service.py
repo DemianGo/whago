@@ -162,6 +162,10 @@ class ChipService:
             chip.extra_data["waha_session"] = session_name
             chip.extra_data["waha_status"] = waha_response.get("status")
             chip.extra_data["proxy_enabled"] = bool(proxy_url)
+            
+            # ✅ Marcar extra_data como modificado para o SQLAlchemy detectar as mudanças
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(chip, "extra_data")
                 
         except Exception as exc:  # noqa: BLE001
             logger.error(
@@ -176,6 +180,11 @@ class ChipService:
         chip.session_id = session_id
         chip.extra_data["waha_fallback"] = fallback
         chip.extra_data["proxy_used"] = proxy_url is not None
+        
+        # ✅ Marcar extra_data como modificado para o SQLAlchemy detectar as mudanças
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(chip, "extra_data")
+        
         await self.session.flush()
 
         await self._add_event(
