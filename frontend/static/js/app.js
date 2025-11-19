@@ -65,8 +65,23 @@ const campaignState = {
 globalThis.__WHAGO_CAMPAIGN_STATE = campaignState;
 
 function setCampaignFeedback(message, type = "info") {
-  const feedback = document.getElementById("campaign-feedback");
+  // Verificar se o wizard está aberto
+  const wizard = document.getElementById("campaign-wizard");
+  const isWizardOpen = wizard && !wizard.classList.contains("hidden");
+  
+  // Usar feedback do wizard se estiver aberto, senão usar o da página
+  const feedbackId = isWizardOpen ? "campaign-wizard-feedback" : "campaign-feedback";
+  const feedback = document.getElementById(feedbackId);
   if (!feedback) return;
+  
+  // Fazer scroll para o topo do wizard para mostrar a mensagem
+  if (isWizardOpen) {
+    const wizardContent = wizard.querySelector(".modal__content");
+    if (wizardContent) {
+      wizardContent.scrollTop = 0;
+    }
+  }
+  
   feedback.textContent = message ?? "";
   feedback.classList.remove("text-emerald-600", "text-red-600", "text-amber-600", "text-slate-500");
   if (!message) {
@@ -2298,16 +2313,10 @@ async function handleCampaignBasicSubmit(event) {
 
   // Modo de EDIÇÃO
   if (campaignState.campaignId) {
-    // Preservar settings existentes
-    const existingSettings = campaignState.createdCampaign?.settings || {};
-    payload.settings = {
-      ...existingSettings,
-      chip_ids: existingSettings.chip_ids || [],
-      interval_seconds: existingSettings.interval_seconds || 10,
-      randomize_interval: existingSettings.randomize_interval || false,
-    };
+    // NÃO enviar settings no passo 1, apenas informações básicas
+    // Settings (chips, intervalo, etc) são enviados no passo 2
     
-    console.log("📤 Enviando PUT para editar campanha:", payload);
+    console.log("📤 Enviando PUT para editar campanha (passo 1 - SEM settings):", payload);
     
     const response = await apiFetch(`/campaigns/${campaignState.campaignId}`, {
       method: "PUT",
@@ -2373,10 +2382,26 @@ async function loadCampaignWizardChips() {
   }
   const chips = await response.json();
   campaignState.chipCache = chips;
-  renderCampaignChips(chips);
+  
+  // Buscar chips em uso por outras campanhas ATIVAS (draft, scheduled, running, paused)
+  const campaignsResponse = await apiFetch("/campaigns");
+  let chipsInUse = new Set();
+  if (campaignsResponse?.ok) {
+    const campaigns = await campaignsResponse.json();
+    const activeCampaigns = campaigns.filter(c => 
+      ["draft", "scheduled", "running", "paused"].includes(c.status) && 
+      c.id !== campaignState.campaignId // Excluir campanha atual se estiver editando
+    );
+    activeCampaigns.forEach(campaign => {
+      const chipIds = campaign.settings?.chip_ids || [];
+      chipIds.forEach(id => chipsInUse.add(id));
+    });
+  }
+  
+  renderCampaignChips(chips, chipsInUse);
 }
 
-function renderCampaignChips(chips) {
+function renderCampaignChips(chips, chipsInUse = new Set()) {
   const container = document.getElementById("campaign-chips-list");
   if (!container) return;
   container.innerHTML = "";
@@ -2385,17 +2410,22 @@ function renderCampaignChips(chips) {
     return;
   }
   
-  // Contar chips conectados
-  const connectedChips = chips.filter(c => (c.status || "").toLowerCase() === "connected");
+  // Contar chips disponíveis (conectados E não em uso)
+  const availableChips = chips.filter(c => 
+    (c.status || "").toLowerCase() === "connected" && 
+    !chipsInUse.has(c.id)
+  );
   
-  // Mostrar aviso se não houver chips conectados
-  if (connectedChips.length === 0) {
+  // Mostrar aviso se não houver chips disponíveis
+  if (availableChips.length === 0) {
     const warning = document.createElement("div");
     warning.className = "bg-yellow-50 border border-yellow-200 rounded-lg p-3 mb-4";
     warning.innerHTML = `
       <p class="text-sm text-yellow-800">
-        ⚠️ <strong>Nenhum chip conectado!</strong> 
-        Conecte pelo menos um chip antes de iniciar a campanha.
+        ⚠️ <strong>Nenhum chip disponível!</strong> 
+        ${chips.some(c => (c.status || "").toLowerCase() === "connected") 
+          ? "Todos os chips conectados estão sendo usados por outras campanhas." 
+          : "Conecte pelo menos um chip antes de iniciar a campanha."}
       </p>
     `;
     container.appendChild(warning);
@@ -2404,12 +2434,20 @@ function renderCampaignChips(chips) {
   chips.forEach((chip) => {
     const card = document.createElement("label");
     const isConnected = (chip.status || "").toLowerCase() === "connected";
-    const disabled = !isConnected;
+    const isInUse = chipsInUse.has(chip.id);
+    const disabled = !isConnected || isInUse;
     const isSelected = campaignState.selectedChips.has(chip.id);
     
-    // Se está desconectado e estava selecionado, remover da seleção
-    if (disabled && isSelected) {
+    // Se está desconectado ou em uso e estava selecionado, remover da seleção
+    if (disabled && isSelected && isInUse) {
       campaignState.selectedChips.delete(chip.id);
+    }
+    
+    let statusLabel = "";
+    if (!isConnected) {
+      statusLabel = '<span class="text-xs text-red-600 ml-2">(Desconectado)</span>';
+    } else if (isInUse) {
+      statusLabel = '<span class="text-xs text-orange-600 ml-2">(Em uso por outra campanha)</span>';
     }
     
     card.className = `card space-y-2 ${disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:bg-slate-50"}`;
@@ -2418,7 +2456,7 @@ function renderCampaignChips(chips) {
         <div class="flex-1">
           <p class="font-medium ${disabled ? "text-slate-400" : "text-slate-700"}">
             ${chip.alias}
-            ${disabled ? '<span class="text-xs text-red-600 ml-2">(Desconectado)</span>' : ""}
+            ${statusLabel}
           </p>
           <p class="text-xs text-slate-500">Status: ${formatChipStatus(chip.status)}</p>
         </div>
@@ -2456,8 +2494,22 @@ async function handleCampaignChipsSubmit(event) {
     }),
   });
   if (!response?.ok) {
-    const message = await response.text();
-    setCampaignFeedback(message || "Não foi possível salvar as configurações de chips.", "error");
+    let message = "Não foi possível salvar as configurações de chips.";
+    try {
+      const errorData = await response.json();
+      message = errorData.detail || errorData.message || message;
+    } catch {
+      const text = await response.text();
+      if (text) {
+        try {
+          const parsed = JSON.parse(text);
+          message = parsed.detail || parsed.message || text;
+        } catch {
+          message = text;
+        }
+      }
+    }
+    setCampaignFeedback(message, "error");
     return;
   }
   const data = await response.json();

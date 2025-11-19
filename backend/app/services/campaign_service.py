@@ -198,6 +198,94 @@ class CampaignService:
         if data.settings is not None:
             settings = self._normalize_settings(db_user, data.settings, campaign.type)
             await self._validate_chip_limits(db_user, settings.chip_ids)
+            
+            # Validar que os chips não estão sendo usados por outra campanha ativa
+            # (DRAFT, SCHEDULED, RUNNING, PAUSED)
+            chip_ids = settings.chip_ids or []
+            if chip_ids:
+                from app.models.chip import Chip, ChipStatus
+                from uuid import UUID
+                import logging
+                logger = logging.getLogger("whago.campaign_validation")
+                
+                # ⚠️ IMPORTANTE: Converter todos os chip_ids para strings para comparação
+                chip_ids_str = [str(chip_id) for chip_id in chip_ids]
+                
+                logger.info(f"Validando chips para campanha {campaign.id} | Status: {campaign.status} | Chips: {chip_ids_str}")
+                
+                # Buscar todas as campanhas ATIVAS do usuário (excluindo a atual)
+                # ATIVAS = DRAFT, SCHEDULED, RUNNING, PAUSED
+                # NÃO ATIVAS = COMPLETED, CANCELLED
+                result_active = await self.session.execute(
+                    select(Campaign).where(
+                        Campaign.user_id == user.id,
+                        Campaign.status.in_([
+                            CampaignStatus.DRAFT,
+                            CampaignStatus.SCHEDULED,
+                            CampaignStatus.RUNNING,
+                            CampaignStatus.PAUSED
+                        ]),
+                        Campaign.id != campaign.id
+                    )
+                )
+                active_campaigns = result_active.scalars().all()
+                
+                logger.info(f"Encontradas {len(active_campaigns)} campanhas ATIVAS do usuário")
+                
+                # Extrair todos os chip_ids em uso por outras campanhas ATIVAS
+                # ⚠️ IMPORTANTE: Converter chip_ids para strings
+                chips_in_use = {}  # chip_id_str -> (campaign_name, campaign_status)
+                for active_campaign in active_campaigns:
+                    active_settings = active_campaign.settings or {}
+                    active_chip_ids = active_settings.get("chip_ids") or []
+                    # Converter para strings
+                    active_chip_ids_str = [str(chip_id) for chip_id in active_chip_ids]
+                    for chip_id_str in active_chip_ids_str:
+                        if chip_id_str not in chips_in_use:
+                            chips_in_use[chip_id_str] = []
+                        chips_in_use[chip_id_str].append({
+                            'name': active_campaign.name,
+                            'status': active_campaign.status.value
+                        })
+                    if active_chip_ids_str:
+                        logger.info(f"Campanha {active_campaign.name} ({active_campaign.status.value}) usa chips: {active_chip_ids_str}")
+                
+                logger.info(f"Chips em uso por campanhas ATIVAS: {list(chips_in_use.keys())}")
+                
+                # Verificar se algum chip da campanha atual já está em uso
+                # ⚠️ IMPORTANTE: Agora ambos são strings
+                chip_ids_set_str = set(chip_ids_str)
+                chips_in_use_set = set(chips_in_use.keys())
+                conflicting_chip_ids = chip_ids_set_str & chips_in_use_set
+                
+                logger.info(f"🔍 Comparando: {chip_ids_set_str} ∩ {chips_in_use_set} = {conflicting_chip_ids}")
+                
+                if conflicting_chip_ids:
+                    logger.warning(f"❌ Chips conflitantes detectados: {conflicting_chip_ids}")
+                    
+                    # Buscar os aliases dos chips conflitantes (converter strings de volta para UUIDs)
+                    conflicting_uuids = [UUID(chip_id_str) for chip_id_str in conflicting_chip_ids]
+                    result_chip_aliases = await self.session.execute(
+                        select(Chip.alias).where(Chip.id.in_(conflicting_uuids))
+                    )
+                    chip_aliases = [row[0] for row in result_chip_aliases.all()]
+                    
+                    # Montar mensagem detalhada
+                    conflict_details = []
+                    for chip_id_str in conflicting_chip_ids:
+                        campaigns_using = chips_in_use[chip_id_str]
+                        for camp in campaigns_using:
+                            conflict_details.append(f"{camp['name']} ({camp['status']})")
+                    
+                    campaigns_str = ", ".join(conflict_details)
+                    
+                    raise HTTPException(
+                        status_code=status.HTTP_400_BAD_REQUEST,
+                        detail=f"Chip já está sendo usado por outra campanha: {campaigns_str}. Um chip não pode ser usado por múltiplas campanhas simultaneamente.",
+                    )
+                
+                logger.info(f"✅ Validação OK - Nenhum conflito de chips")
+            
             campaign.settings = settings.model_dump(mode="json")
 
         await self.session.commit()
@@ -539,6 +627,53 @@ class CampaignService:
                     status_code=status.HTTP_400_BAD_REQUEST,
                     detail="Nenhum chip está conectado. Conecte pelo menos um chip antes de iniciar a campanha.",
                 )
+        
+        # Validar que os chips não estão sendo usados por outra campanha ATIVA
+        # Buscar todas as campanhas ATIVAS do usuário (excluindo a atual)
+        result_active = await self.session.execute(
+            select(Campaign).where(
+                Campaign.user_id == user.id,
+                Campaign.status.in_([
+                    CampaignStatus.DRAFT,
+                    CampaignStatus.SCHEDULED,
+                    CampaignStatus.RUNNING,
+                    CampaignStatus.PAUSED
+                ]),
+                Campaign.id != campaign.id
+            )
+        )
+        active_campaigns = result_active.scalars().all()
+        
+        # Extrair todos os chip_ids em uso por outras campanhas ATIVAS
+        # ⚠️ IMPORTANTE: Converter para strings para comparação
+        chips_in_use = set()
+        for active_campaign in active_campaigns:
+            active_settings = active_campaign.settings or {}
+            active_chip_ids = active_settings.get("chip_ids") or []
+            # Converter para strings
+            active_chip_ids_str = [str(chip_id) for chip_id in active_chip_ids]
+            chips_in_use.update(active_chip_ids_str)
+        
+        # Verificar se algum chip da campanha atual já está em uso
+        # ⚠️ IMPORTANTE: Converter chip_ids para strings
+        chip_ids_str_set = set([str(chip_id) for chip_id in chip_ids])
+        conflicting_chips_str = chip_ids_str_set & chips_in_use
+        
+        if conflicting_chips_str:
+            # Buscar os aliases dos chips conflitantes para mensagem amigável
+            # Converter strings de volta para UUIDs
+            from uuid import UUID
+            conflicting_uuids = [UUID(chip_id_str) for chip_id_str in conflicting_chips_str]
+            result_chip_aliases = await self.session.execute(
+                select(Chip.alias).where(Chip.id.in_(conflicting_uuids))
+            )
+            chip_aliases = [row[0] for row in result_chip_aliases.all()]
+            chips_str = ", ".join(chip_aliases)
+            
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Os seguintes chips já estão sendo usados por outra campanha: {chips_str}. Um chip não pode ser usado por múltiplas campanhas simultaneamente.",
+            )
 
         if campaign.status == CampaignStatus.PAUSED:
             campaign.status = CampaignStatus.RUNNING
