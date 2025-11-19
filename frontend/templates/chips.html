@@ -80,44 +80,96 @@
 </div>
 <div id="chip-modal-backdrop" class="modal__backdrop hidden" aria-hidden="true"></div>
 
-<!-- Modal: Heat-up em Grupo -->
+<!-- Modal: Heat-up Individual com Seleção de Grupo -->
 <div id="group-heatup-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="group-heatup-title">
-  <div class="modal__content" style="max-width: 700px;">
+  <div class="modal__content" style="max-width: 900px; max-height: 90vh; overflow-y: auto;">
     <div class="modal__header">
-      <h3 id="group-heatup-title" class="modal__title">🔥 Aquecimento em Grupo</h3>
+      <h3 id="group-heatup-title" class="modal__title">🔥 Configurar Aquecimento</h3>
       <button type="button" id="group-heatup-close" class="modal__close" aria-label="Fechar">✕</button>
     </div>
-    <div class="modal__body space-y-4">
-      <p class="text-sm text-slate-600">Selecione de 2 a 10 chips conectados para iniciarem aquecimento conversando entre si.</p>
-      
-      <div class="space-y-2">
-        <label class="card__label">Chips disponíveis</label>
-        <div id="group-heatup-chips" class="space-y-2 max-h-60 overflow-y-auto border rounded-lg p-3"></div>
+    <div class="modal__body space-y-6">
+      <div class="bg-blue-50 border border-blue-200 rounded-lg p-3">
+        <p class="text-sm text-blue-800">
+          <strong>ℹ️ Como funciona:</strong> Selecione pelo menos 2 chips conectados. Eles vão conversar entre si usando as mensagens que você configurar abaixo, seguindo um plano de aquecimento gradual.
+        </p>
       </div>
       
-      <div class="space-y-2">
-        <label class="card__label">Mensagens customizadas (opcional)</label>
-        <p class="text-xs text-slate-500">Deixe em branco para usar mensagens padrão. Uma mensagem por linha.</p>
-        <textarea id="group-heatup-messages" rows="6" class="input font-mono text-xs" placeholder="Oi! Tudo bem?
-Bom dia! Como vai?
-Tudo certo aí?"></textarea>
+      <!-- Chips disponíveis -->
+      <div class="space-y-3">
+        <div class="flex items-center justify-between">
+          <label class="card__label">1. Selecione os chips (mínimo 2)</label>
+          <span id="selected-chips-count" class="text-xs text-slate-500">0 selecionados</span>
+        </div>
+        <div id="group-heatup-chips" class="space-y-2 max-h-48 overflow-y-auto border rounded-lg p-3 bg-slate-50"></div>
       </div>
       
-      <div class="bg-slate-50 p-3 rounded-lg">
-        <p class="text-xs font-medium text-slate-700">📋 Preview do plano:</p>
-        <ul class="mt-2 text-xs text-slate-600 space-y-1">
-          <li>• Fase 1: 20 msg/h por 4h</li>
-          <li>• Fase 2: 40 msg/h por 8h</li>
-          <li>• Fase 3: 60 msg/h por 12h</li>
-          <li>• Fase 4: 80 msg/h por 24h</li>
-          <li>• Fase 5: 120 msg/h por 24h</li>
-          <li class="font-semibold mt-2">Total: 72 horas recomendadas</li>
-        </ul>
+      <!-- Mensagens -->
+      <div class="space-y-3">
+        <label class="card__label">2. Configure as mensagens</label>
+        
+        <!-- Upload de arquivo -->
+        <div class="border-2 border-dashed border-slate-300 rounded-lg p-4 text-center hover:border-slate-400 transition-colors">
+          <input type="file" id="heatup-messages-file" accept=".txt,.csv" class="hidden" />
+          <label for="heatup-messages-file" class="cursor-pointer">
+            <p class="text-sm text-slate-600">
+              📁 <span class="text-blue-600 hover:text-blue-700 font-medium">Clique para fazer upload</span> de arquivo .txt ou .csv
+            </p>
+            <p class="text-xs text-slate-400 mt-1">Uma mensagem por linha</p>
+          </label>
+        </div>
+        
+        <!-- Textarea manual -->
+        <div class="space-y-2">
+          <p class="text-xs text-slate-500">Mensagens padrão (edite ou substitua conforme necessário):</p>
+          <textarea id="group-heatup-messages" rows="10" class="input font-mono text-xs" placeholder="As mensagens padrão serão carregadas automaticamente..."></textarea>
+          <div class="flex items-center justify-between text-xs text-slate-500">
+            <span id="messages-count">0 mensagens</span>
+            <button type="button" id="clear-messages" class="text-red-600 hover:text-red-700">Limpar tudo</button>
+          </div>
+        </div>
+        
+        <!-- Preview das mensagens -->
+        <div class="bg-slate-50 border rounded-lg p-3">
+          <p class="text-xs font-medium text-slate-700 mb-2">📝 Preview das mensagens:</p>
+          <div id="messages-preview" class="space-y-1 max-h-32 overflow-y-auto text-xs text-slate-600">
+            <p class="text-slate-400 italic">Nenhuma mensagem ainda...</p>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Plano de aquecimento -->
+      <div class="bg-gradient-to-r from-orange-50 to-amber-50 border border-orange-200 rounded-lg p-4">
+        <p class="text-sm font-medium text-slate-800 mb-3">📋 Plano de Aquecimento (5 fases - 72h totais)</p>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
+          <div class="flex items-center gap-2">
+            <span class="text-orange-600">●</span>
+            <span class="text-slate-700"><strong>Fase 1:</strong> 20 msg/h por 4h</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-orange-600">●</span>
+            <span class="text-slate-700"><strong>Fase 2:</strong> 40 msg/h por 8h</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-amber-600">●</span>
+            <span class="text-slate-700"><strong>Fase 3:</strong> 60 msg/h por 12h</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-amber-600">●</span>
+            <span class="text-slate-700"><strong>Fase 4:</strong> 80 msg/h por 24h</span>
+          </div>
+          <div class="flex items-center gap-2 md:col-span-2">
+            <span class="text-green-600">●</span>
+            <span class="text-slate-700"><strong>Fase 5:</strong> 120 msg/h por 24h</span>
+          </div>
+        </div>
+        <p class="text-xs text-slate-600 mt-3 pt-3 border-t border-orange-200">
+          <strong>⚠️ Importante:</strong> Os chips vão conversar entre si de forma natural, respeitando intervalos aleatórios e usando proxies para evitar detecção.
+        </p>
       </div>
     </div>
     <div class="modal__footer">
       <button type="button" class="btn-secondary" id="group-heatup-cancel">Cancelar</button>
-      <button type="button" class="btn-primary" id="group-heatup-start">Iniciar aquecimento</button>
+      <button type="button" class="btn-primary" id="group-heatup-start">🔥 Iniciar Aquecimento</button>
     </div>
   </div>
 </div>

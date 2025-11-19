@@ -92,7 +92,7 @@ services:
       - ./backend/.env:/app/.env
       - /var/run/docker.sock:/var/run/docker.sock
     command: >
-      sh -c "celery -A tasks.celery_app worker --loglevel=info --concurrency=1"
+      sh -c "celery -A tasks.celery_app worker --beat --loglevel=info --concurrency=1"
 
   waha:
     image: devlikeapro/waha:latest

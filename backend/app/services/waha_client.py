@@ -355,19 +355,26 @@ class WAHAClient:
         client = await self._get_client()
         
         try:
-            # Garantir formato correto do número (sem @ ou @s.whatsapp.net)
-            phone = to.replace("@s.whatsapp.net", "").replace("@", "")
+            # Garantir formato correto do número (sem + @ ou @s.whatsapp.net)
+            phone = to.replace("+", "").replace("@s.whatsapp.net", "").replace("@", "")
             
             payload = {
                 "session": session_id,
-                "chatId": f"{phone}@c.us",
+                "chatId": f"{phone}@s.whatsapp.net",
                 "text": text,
             }
+            
+            logger.info(f"📨 Enviando para WAHA: session={session_id}, chatId={phone}@s.whatsapp.net")
             
             response = await client.post(
                 "/api/sendText",
                 json=payload
             )
+            
+            if response.status_code != 200:
+                error_body = response.text
+                logger.error(f"❌ WAHA retornou {response.status_code}: {error_body}")
+            
             response.raise_for_status()
             
             logger.info(f"Mensagem enviada com sucesso via sessão {session_id} para {phone}")

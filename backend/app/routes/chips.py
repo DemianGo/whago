@@ -290,6 +290,24 @@ async def get_maturation_stats(
         # Determinar se está pronto
         is_ready = heat_up_data.get("status") == "completed" or elapsed_hours >= total_hours
         
+        # Buscar histórico de mensagens
+        message_history = heat_up_data.get("message_history", [])
+        total_messages_sent = heat_up_data.get("total_messages_sent", 0)
+        
+        # Formatar últimas 10 mensagens para exibição
+        recent_messages = []
+        for msg in message_history[-10:]:
+            try:
+                timestamp = datetime.fromisoformat(msg["timestamp"].replace("Z", "+00:00"))
+                recent_messages.append({
+                    "time": timestamp.strftime("%d/%m %H:%M"),
+                    "to": msg.get("to", "N/A"),
+                    "message": msg.get("message", "")[:50],
+                    "phase": msg.get("phase", current_phase)
+                })
+            except Exception as e:
+                logger.error(f"Erro ao formatar mensagem: {e}")
+        
         return {
             "chip_id": str(chip.id),
             "alias": chip.alias,
@@ -297,6 +315,7 @@ async def get_maturation_stats(
             "current_phase": current_phase,
             "total_phases": len(plan),
             "messages_sent_in_phase": messages_sent,
+            "total_messages_sent": total_messages_sent,
             "elapsed_hours": round(elapsed_hours, 2),
             "total_hours": total_hours,
             "progress_percent": round(progress_percent, 2),
@@ -305,6 +324,7 @@ async def get_maturation_stats(
             "completed_at": heat_up_data.get("completed_at"),
             "stopped_at": heat_up_data.get("stopped_at"),
             "group_id": heat_up_data.get("group_id"),
+            "recent_messages": recent_messages,
             "recommendation": "Chip pronto para campanhas!" if is_ready else f"Aguarde mais {round(total_hours - elapsed_hours, 1)}h para conclusão."
         }
     except HTTPException:

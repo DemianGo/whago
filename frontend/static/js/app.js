@@ -1110,12 +1110,15 @@ async function loadChips(options = {}) {
         <div class="flex gap-2 justify-end">
           ${isHeatingUp ? `
             <button class="btn-xs bg-orange-100 text-orange-700 hover:bg-orange-200" type="button" data-action="view-stats" data-chip-id="${chip.id}">
-              📊 Ver Stats
+              📊 Stats
             </button>
             <button class="btn-xs bg-red-100 text-red-700 hover:bg-red-200" type="button" data-action="stop-heatup" data-chip-id="${chip.id}">
               ⏸ Parar
             </button>
           ` : chip.status === 'connected' ? `
+            <button class="btn-secondary btn-xs" type="button" data-action="heat-up" data-chip-id="${chip.id}">
+              🔥 Heat-up
+            </button>
             <button class="btn-secondary btn-xs" type="button" data-action="view-stats" data-chip-id="${chip.id}">
               📊 Stats
             </button>
@@ -1130,6 +1133,14 @@ async function loadChips(options = {}) {
       </td>
     `;
     table.appendChild(row);
+
+    // Heat-up button (individual)
+    const heatUpButton = row.querySelector("[data-action=\"heat-up\"]");
+    if (heatUpButton) {
+      heatUpButton.addEventListener("click", async () => {
+        await openHeatUpModalForChip(chip.id);
+      });
+    }
 
     // View Stats button
     const viewStatsButton = row.querySelector("[data-action=\"view-stats\"]");
@@ -3515,7 +3526,12 @@ if (window.location.pathname.includes("/billing")) {
 // HEAT-UP EM GRUPO
 // ========================================
 
-async function openGroupHeatUpModal() {
+// Abrir modal de heat-up para um chip específico
+async function openHeatUpModalForChip(chipId) {
+  await openGroupHeatUpModal(chipId);
+}
+
+async function openGroupHeatUpModal(preselectedChipId = null) {
   const modal = document.getElementById("group-heatup-modal");
   const backdrop = document.getElementById("group-heatup-backdrop");
   if (!modal || !backdrop) return;
@@ -3530,8 +3546,8 @@ async function openGroupHeatUpModal() {
   const chips = await response.json();
   const connectedChips = chips.filter(chip => chip.status === "connected");
 
-  if (connectedChips.length < 2) {
-    setChipFeedback("Você precisa de pelo menos 2 chips conectados para aquecimento em grupo.", "warning");
+  if (connectedChips.length < 1) {
+    setChipFeedback("Você precisa de pelo menos 1 chip conectado.", "warning");
     return;
   }
 
@@ -3540,10 +3556,11 @@ async function openGroupHeatUpModal() {
 
   container.innerHTML = "";
   connectedChips.forEach(chip => {
+    const isPreselected = chip.id === preselectedChipId;
     const div = document.createElement("div");
-    div.className = "flex items-center gap-3 p-2 border rounded hover:bg-slate-50 cursor-pointer";
+    div.className = "flex items-center gap-3 p-2 border rounded hover:bg-slate-50 cursor-pointer transition-colors";
     div.innerHTML = `
-      <input type="checkbox" id="chip-${chip.id}" name="group_chips" value="${chip.id}" class="cursor-pointer" />
+      <input type="checkbox" id="chip-${chip.id}" name="group_chips" value="${chip.id}" ${isPreselected ? 'checked' : ''} class="cursor-pointer chip-checkbox" />
       <label for="chip-${chip.id}" class="flex-1 cursor-pointer text-sm font-medium text-slate-700">
         ${chip.alias} <span class="text-xs text-slate-500">(Saúde: ${chip.health_score ?? "--"})</span>
       </label>
@@ -3551,9 +3568,173 @@ async function openGroupHeatUpModal() {
     container.appendChild(div);
   });
 
+  // Atualizar contador ao mudar seleção
+  updateSelectedChipsCount();
+  document.querySelectorAll('.chip-checkbox').forEach(cb => {
+    cb.addEventListener('change', updateSelectedChipsCount);
+  });
+  
+  // Carregar mensagens padrão no textarea
+  const messagesTextarea = document.getElementById("group-heatup-messages");
+  if (messagesTextarea) {
+    // Só preencher se estiver vazio
+    if (!messagesTextarea.value.trim()) {
+      messagesTextarea.value = getDefaultHeatUpMessages();
+    }
+    messagesTextarea.addEventListener('input', updateMessagesPreview);
+    updateMessagesPreview(); // Inicial
+  }
+
   modal.classList.remove("hidden");
   backdrop.classList.remove("hidden");
 }
+
+function getDefaultHeatUpMessages() {
+  return `Oi! Tudo bem?
+Bom dia! Como vai?
+Boa tarde! E aí?
+Boa noite! Tudo certo?
+Olá! Tudo bem com você?
+E aí, tudo tranquilo?
+Oi, tudo certinho aí?
+Bom dia! Tudo ok?
+Boa tarde! Beleza?
+Boa noite! Como foi o dia?
+Ok, entendido!
+Perfeito, obrigado!
+Beleza, valeu!
+Combinado então!
+Pode deixar!
+Sim, recebi sim!
+Ok, vou verificar
+Tudo certo, obrigado
+Entendi, valeu!
+Perfeito! Obrigado
+Conseguiu ver?
+Recebeu o documento?
+Viu a mensagem?
+Tudo certo aí?
+Precisa de alguma coisa?
+Posso ajudar em algo?
+Tem alguma dúvida?
+Quer que eu explique melhor?
+Precisa de mais informações?
+Alguma outra coisa?
+Sim, recebi!
+Tudo ok por aqui
+Não precisa, obrigado
+Já resolvi, valeu!
+Tudo certo, pode seguir
+Vou dar uma olhada
+Deixa eu verificar aqui
+Vou checar e te retorno
+Já estou vendo
+Olhando aqui agora
+Deu tudo certo!
+Funcionou perfeitamente
+Consegui sim, obrigado
+Resolvido, valeu!
+Problema resolvido
+Show! Obrigado
+Maravilha! Valeu
+Excelente! Obrigado
+Legal! Funcionou
+Perfeito! Deu certo
+Quanto tempo! Como anda?
+Há quanto tempo! Tudo bem?
+Que bom te ver por aqui
+Legal saber que está bem
+Fico feliz em ajudar
+Qualquer coisa é só falar
+Estou à disposição
+Pode contar comigo
+Sem problemas!
+De nada!
+Disponha sempre
+Por nada!
+Sempre às ordens
+Fico no aguardo
+Aguardo seu retorno
+Qualquer novidade me avisa
+Me avisa se precisar
+Estou aqui
+Bom final de semana!
+Ótima semana!
+Bom descanso!
+Até mais!
+Até breve!
+Abraço!
+Falamos depois
+Combinado! Até mais
+Fechado então! Até`;
+}
+
+function updateSelectedChipsCount() {
+  const selected = document.querySelectorAll("[name='group_chips']:checked").length;
+  const countSpan = document.getElementById("selected-chips-count");
+  if (countSpan) {
+    countSpan.textContent = `${selected} selecionado${selected !== 1 ? 's' : ''}`;
+    countSpan.className = selected >= 2 ? "text-xs text-green-600 font-medium" : "text-xs text-amber-600";
+  }
+}
+
+function updateMessagesPreview() {
+  const textarea = document.getElementById("group-heatup-messages");
+  const preview = document.getElementById("messages-preview");
+  const count = document.getElementById("messages-count");
+  
+  if (!textarea || !preview) return;
+  
+  const text = textarea.value.trim();
+  const messages = text ? text.split('\n').filter(msg => msg.trim()) : [];
+  
+  if (count) {
+    count.textContent = `${messages.length} mensagen${messages.length !== 1 ? 's' : 'm'}`;
+  }
+  
+  if (messages.length === 0) {
+    preview.innerHTML = '<p class="text-slate-400 italic">Nenhuma mensagem ainda...</p>';
+    return;
+  }
+  
+  preview.innerHTML = messages.slice(0, 10).map((msg, i) => 
+    `<p class="text-slate-600">${i + 1}. ${msg.substring(0, 60)}${msg.length > 60 ? '...' : ''}</p>`
+  ).join('');
+  
+  if (messages.length > 10) {
+    preview.innerHTML += `<p class="text-slate-400 italic">... e mais ${messages.length - 10} mensagens</p>`;
+  }
+}
+
+// Upload de arquivo de mensagens
+document.getElementById("heatup-messages-file")?.addEventListener('change', async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  
+  try {
+    const text = await file.text();
+    const textarea = document.getElementById("group-heatup-messages");
+    if (textarea) {
+      textarea.value = text;
+      updateMessagesPreview();
+    }
+    setChipFeedback(`Arquivo "${file.name}" carregado com ${text.split('\n').filter(l => l.trim()).length} mensagens.`, "success");
+  } catch (err) {
+    setChipFeedback("Erro ao ler arquivo: " + err.message, "error");
+  }
+});
+
+// Limpar mensagens
+document.getElementById("clear-messages")?.addEventListener('click', () => {
+  if (confirm("Deseja limpar todas as mensagens?")) {
+    const textarea = document.getElementById("group-heatup-messages");
+    if (textarea) {
+      textarea.value = "";
+      updateMessagesPreview();
+    }
+    setChipFeedback("Mensagens limpas. Digite suas próprias mensagens ou feche e abra o modal novamente para recarregar as padrão.", "info");
+  }
+});
 
 function closeGroupHeatUpModal() {
   const modal = document.getElementById("group-heatup-modal");
@@ -3563,28 +3744,52 @@ function closeGroupHeatUpModal() {
   
   // Limpar seleção
   document.querySelectorAll("[name='group_chips']:checked").forEach(el => el.checked = false);
+  
+  // Limpar textarea
   const textarea = document.getElementById("group-heatup-messages");
   if (textarea) textarea.value = "";
+  
+  // Limpar file input
+  const fileInput = document.getElementById("heatup-messages-file");
+  if (fileInput) fileInput.value = "";
+  
+  // Resetar preview
+  updateMessagesPreview();
+  updateSelectedChipsCount();
 }
 
 async function handleGroupHeatUpStart() {
   const selectedChips = Array.from(document.querySelectorAll("[name='group_chips']:checked")).map(el => el.value);
   
   if (selectedChips.length < 2) {
-    alert("Selecione pelo menos 2 chips para iniciar o aquecimento em grupo.");
+    setChipFeedback("⚠️ Selecione pelo menos 2 chips para iniciar o aquecimento.", "warning");
     return;
   }
   
   if (selectedChips.length > 10) {
-    alert("Você pode selecionar no máximo 10 chips para aquecimento em grupo.");
+    setChipFeedback("⚠️ Você pode selecionar no máximo 10 chips.", "warning");
     return;
   }
 
   const customMessagesText = document.getElementById("group-heatup-messages")?.value?.trim();
-  const customMessages = customMessagesText ? customMessagesText.split("\n").filter(msg => msg.trim()) : null;
+  
+  if (!customMessagesText) {
+    setChipFeedback("⚠️ Adicione pelo menos uma mensagem. Feche e abra o modal novamente para recarregar as mensagens padrão.", "warning");
+    return;
+  }
+  
+  const customMessages = customMessagesText.split("\n").filter(msg => msg.trim());
+  
+  if (customMessages.length < 10) {
+    setChipFeedback("⚠️ Adicione pelo menos 10 mensagens para variar as conversas. Atualmente: " + customMessages.length + " mensagens.", "warning");
+    return;
+  }
 
   const startButton = document.getElementById("group-heatup-start");
-  if (startButton) startButton.disabled = true;
+  if (startButton) {
+    startButton.disabled = true;
+    startButton.textContent = "Iniciando...";
+  }
 
   const response = await apiFetch("/chips/heat-up/group", {
     method: "POST",
@@ -3604,16 +3809,22 @@ async function handleGroupHeatUpStart() {
     } catch (err) {
       // Ignora erro ao ler resposta
     }
-    alert(detail);
-    if (startButton) startButton.disabled = false;
+    setChipFeedback(detail, "error");
+    if (startButton) {
+      startButton.disabled = false;
+      startButton.textContent = "🔥 Iniciar Aquecimento";
+    }
     return;
   }
 
   const result = await response.json();
-  setChipFeedback(`Aquecimento em grupo iniciado com sucesso! ${selectedChips.length} chips estão aquecendo.`, "success");
+  setChipFeedback(`✅ Aquecimento iniciado! ${selectedChips.length} chips estão aquecendo com ${customMessages.length} mensagens configuradas.`, "success");
   closeGroupHeatUpModal();
   await loadChips({ silent: true });
-  if (startButton) startButton.disabled = false;
+  if (startButton) {
+    startButton.disabled = false;
+    startButton.textContent = "🔥 Iniciar Aquecimento";
+  }
 }
 
 document.getElementById("group-heatup-start")?.addEventListener("click", handleGroupHeatUpStart);
@@ -3792,3 +4003,6 @@ document.getElementById("maturation-stats-backdrop")?.addEventListener("click", 
 // Cache bust: 1763083452 - Fix credit purchase redirect
 // Cache bust: 1731876543 - Group heat-up + maturation stats
 // Cache bust: 1731877890 - Fix event listeners for stats buttons
+// Cache bust: 1731889234 - Individual heat-up button with messages upload
+// Cache bust: 1731889567 - Auto-fill with 75 default messages
+// Cache bust: 1731891234 - REAL message sending + history display
