@@ -66,6 +66,22 @@ class ChipHeatUpResponse(BaseModel):
     recommended_total_hours: int
 
 
+class ChipHeatUpGroupRequest(BaseModel):
+    """Request para iniciar heat-up em grupo de chips."""
+    chip_ids: list[UUID] = Field(..., min_length=2, max_length=10, description="IDs dos chips que vão aquecer juntos (mínimo 2)")
+    custom_messages: list[str] | None = Field(None, description="Mensagens customizadas (opcional)")
+
+
+class ChipHeatUpGroupResponse(BaseModel):
+    """Response do heat-up em grupo."""
+    group_id: UUID
+    chip_ids: list[UUID]
+    message: str
+    stages: list[ChipHeatUpStage]
+    recommended_total_hours: int
+    preview_messages: list[str]
+
+
 __all__ = (
     "ChipCreate",
     "ChipResponse",
@@ -73,6 +89,8 @@ __all__ = (
     "ChipQrResponse",
     "ChipHeatUpStage",
     "ChipHeatUpResponse",
+    "ChipHeatUpGroupRequest",
+    "ChipHeatUpGroupResponse",
 )
 
 

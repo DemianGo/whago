@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <title>Teste Aquecimento - Debug</title>
+    <script>
+        // Simular apiFetch
+        window.apiFetch = async (url, options) => {
+            console.log('📡 API Call:', url, options);
+            
+            if (url === '/chips') {
+                return {
+                    ok: true,
+                    json: async () => [
+                        {
+                            id: '123',
+                            alias: 'Chip Teste 1',
+                            status: 'connected',
+                            health_score: 95,
+                            created_at: new Date().toISOString(),
+                            last_activity_at: new Date().toISOString(),
+                            extra_data: {}
+                        },
+                        {
+                            id: '456',
+                            alias: 'Chip Teste 2',
+                            status: 'maturing',
+                            health_score: 88,
+                            created_at: new Date().toISOString(),
+                            last_activity_at: new Date().toISOString(),
+                            extra_data: {
+                                heat_up: {
+                                    status: 'in_progress',
+                                    current_phase: 2,
+                                    messages_sent_in_phase: 10
+                                }
+                            }
+                        }
+                    ]
+                };
+            }
+            
+            if (url.includes('/maturation-stats')) {
+                return {
+                    ok: true,
+                    json: async () => ({
+                        chip_id: '456',
+                        alias: 'Chip Teste 2',
+                        status: 'in_progress',
+                        current_phase: 2,
+                        total_phases: 5,
+                        messages_sent_in_phase: 10,
+                        elapsed_hours: 6.5,
+                        total_hours: 72,
+                        progress_percent: 9.03,
+                        is_ready_for_campaign: false,
+                        started_at: new Date().toISOString(),
+                        group_id: 'abc-123-def',
+                        recommendation: 'Aguarde mais 65.5h para conclusão.'
+                    })
+                };
+            }
+            
+            return { ok: true, json: async () => ({}) };
+        };
+        
+        // Verificar funções
+        window.addEventListener('DOMContentLoaded', () => {
+            console.log('✅ Página carregada');
+            
+            setTimeout(() => {
+                console.log('\n🔍 Verificando funções:');
+                console.log('openMaturationStatsModal:', typeof window.openMaturationStatsModal);
+                console.log('handleStopHeatUp:', typeof window.handleStopHeatUp);
+                console.log('openGroupHeatUpModal:', typeof window.openGroupHeatUpModal);
+                
+                console.log('\n🔍 Verificando modais no DOM:');
+                console.log('maturation-stats-modal:', !!document.getElementById('maturation-stats-modal'));
+                console.log('group-heatup-modal:', !!document.getElementById('group-heatup-modal'));
+                
+                console.log('\n🔍 Verificando botões:');
+                const statsButtons = document.querySelectorAll('[data-action="view-stats"]');
+                console.log('Botões Stats encontrados:', statsButtons.length);
+                statsButtons.forEach((btn, i) => {
+                    console.log(`  Botão ${i+1}:`, btn.textContent.trim());
+                });
+            }, 1000);
+        });
+    </script>
+</head>
+<body>
+    <h1>Teste de Debug - Aquecimento de Chips</h1>
+    <p>Abra o Console do DevTools (F12) para ver os logs.</p>
+    <hr>
+    <h2>Instruções:</h2>
+    <ol>
+        <li>Abra <code>http://localhost:8000/chips</code> em outra aba</li>
+        <li>Pressione F12 e vá em Console</li>
+        <li>Execute: <code>localStorage.clear(); location.reload();</code></li>
+        <li>Verifique se os botões "📊 Stats" aparecem</li>
+        <li>Clique em um botão "📊 Stats" e veja se o modal abre</li>
+    </ol>
+    <hr>
+    <h3>Checklist:</h3>
+    <ul>
+        <li>✅ Event listeners atachados corretamente</li>
+        <li>✅ Funções openMaturationStatsModal e handleStopHeatUp existem</li>
+        <li>✅ Modais existem no DOM</li>
+        <li>⏳ Testando cliques nos botões...</li>
+    </ul>
+</body>
+</html>
+

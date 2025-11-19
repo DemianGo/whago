@@ -439,8 +439,13 @@ class ChipService:
             "status": "in_progress",
             "plan": stages,
             "started_at": datetime.utcnow().isoformat(),
+            "current_phase": 1,
+            "phase_started_at": datetime.utcnow().isoformat(),
+            "messages_sent_in_phase": 0,
         }
         chip.extra_data = extra
+        from sqlalchemy.orm.attributes import flag_modified
+        flag_modified(chip, "extra_data")
 
         await self._add_event(
             chip,

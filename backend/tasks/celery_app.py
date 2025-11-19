@@ -49,10 +49,15 @@ celery_app.conf.update(
             "task": "cleanup_stale_chips",
             "schedule": 300.0,  # A cada 5 minutos
         },
+        "execute-chip-maturation": {
+            "task": "execute_chip_maturation_cycle",
+            "schedule": 120.0,  # A cada 2 minutos (para teste)
+            # Para produção: 3600.0 (1 hora)
+        },
     },
 )
 
-celery_app.autodiscover_tasks(packages=("tasks.campaign_tasks", "tasks.billing_tasks", "tasks.proxy_monitor_tasks", "tasks.cleanup_tasks"))
+celery_app.autodiscover_tasks(packages=("tasks.campaign_tasks", "tasks.billing_tasks", "tasks.proxy_monitor_tasks", "tasks.cleanup_tasks", "tasks.chip_maturation_tasks"))
 
 
 __all__ = ("celery_app",)

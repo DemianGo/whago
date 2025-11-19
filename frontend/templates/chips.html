@@ -10,6 +10,7 @@
   </div>
   <div class="flex items-center gap-3">
     <button data-test="add-chip" class="btn-primary">Adicionar chip</button>
+    <button id="open-group-heatup" class="btn-secondary">🔥 Aquecer em grupo</button>
     <button id="refresh-chips" class="btn-secondary">Atualizar lista</button>
   </div>
 </section>
@@ -78,4 +79,65 @@
   </div>
 </div>
 <div id="chip-modal-backdrop" class="modal__backdrop hidden" aria-hidden="true"></div>
+
+<!-- Modal: Heat-up em Grupo -->
+<div id="group-heatup-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="group-heatup-title">
+  <div class="modal__content" style="max-width: 700px;">
+    <div class="modal__header">
+      <h3 id="group-heatup-title" class="modal__title">🔥 Aquecimento em Grupo</h3>
+      <button type="button" id="group-heatup-close" class="modal__close" aria-label="Fechar">✕</button>
+    </div>
+    <div class="modal__body space-y-4">
+      <p class="text-sm text-slate-600">Selecione de 2 a 10 chips conectados para iniciarem aquecimento conversando entre si.</p>
+      
+      <div class="space-y-2">
+        <label class="card__label">Chips disponíveis</label>
+        <div id="group-heatup-chips" class="space-y-2 max-h-60 overflow-y-auto border rounded-lg p-3"></div>
+      </div>
+      
+      <div class="space-y-2">
+        <label class="card__label">Mensagens customizadas (opcional)</label>
+        <p class="text-xs text-slate-500">Deixe em branco para usar mensagens padrão. Uma mensagem por linha.</p>
+        <textarea id="group-heatup-messages" rows="6" class="input font-mono text-xs" placeholder="Oi! Tudo bem?
+Bom dia! Como vai?
+Tudo certo aí?"></textarea>
+      </div>
+      
+      <div class="bg-slate-50 p-3 rounded-lg">
+        <p class="text-xs font-medium text-slate-700">📋 Preview do plano:</p>
+        <ul class="mt-2 text-xs text-slate-600 space-y-1">
+          <li>• Fase 1: 20 msg/h por 4h</li>
+          <li>• Fase 2: 40 msg/h por 8h</li>
+          <li>• Fase 3: 60 msg/h por 12h</li>
+          <li>• Fase 4: 80 msg/h por 24h</li>
+          <li>• Fase 5: 120 msg/h por 24h</li>
+          <li class="font-semibold mt-2">Total: 72 horas recomendadas</li>
+        </ul>
+      </div>
+    </div>
+    <div class="modal__footer">
+      <button type="button" class="btn-secondary" id="group-heatup-cancel">Cancelar</button>
+      <button type="button" class="btn-primary" id="group-heatup-start">Iniciar aquecimento</button>
+    </div>
+  </div>
+</div>
+<div id="group-heatup-backdrop" class="modal__backdrop hidden" aria-hidden="true"></div>
+
+<!-- Modal: Estatísticas de Maturação -->
+<div id="maturation-stats-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="maturation-stats-title">
+  <div class="modal__content" style="max-width: 800px;">
+    <div class="modal__header">
+      <h3 id="maturation-stats-title" class="modal__title">📊 Estatísticas de Maturação</h3>
+      <button type="button" id="maturation-stats-close" class="modal__close" aria-label="Fechar">✕</button>
+    </div>
+    <div class="modal__body" id="maturation-stats-content">
+      <p class="text-center text-slate-500">Carregando...</p>
+    </div>
+    <div class="modal__footer">
+      <button type="button" class="btn-secondary" id="maturation-stats-cancel">Fechar</button>
+      <button type="button" class="btn-primary" id="maturation-stats-refresh">🔄 Atualizar</button>
+    </div>
+  </div>
+</div>
+<div id="maturation-stats-backdrop" class="modal__backdrop hidden" aria-hidden="true"></div>
 {% endblock %}

@@ -1060,6 +1060,9 @@ function bindChipsPage() {
   document.querySelector("[data-test=\"add-chip\"]")?.addEventListener("click", () => {
     openChipModal();
   });
+  document.getElementById("open-group-heatup")?.addEventListener("click", () => {
+    openGroupHeatUpModal();
+  });
   document.getElementById("refresh-chips")?.addEventListener("click", () => {
     void loadChips({ silent: true });
   });
@@ -1105,10 +1108,17 @@ async function loadChips(options = {}) {
       <td class="py-2">${formatDate(chip.last_activity_at)}</td>
       <td class="py-2 text-right">
         <div class="flex gap-2 justify-end">
-          <button class="btn-secondary btn-xs" type="button" data-test="chip-action-heatup" data-chip-id="${chip.id}">
-            Iniciar heat-up
-          </button>
-          ${chip.status === 'connected' ? `
+          ${isHeatingUp ? `
+            <button class="btn-xs bg-orange-100 text-orange-700 hover:bg-orange-200" type="button" data-action="view-stats" data-chip-id="${chip.id}">
+              📊 Ver Stats
+            </button>
+            <button class="btn-xs bg-red-100 text-red-700 hover:bg-red-200" type="button" data-action="stop-heatup" data-chip-id="${chip.id}">
+              ⏸ Parar
+            </button>
+          ` : chip.status === 'connected' ? `
+            <button class="btn-secondary btn-xs" type="button" data-action="view-stats" data-chip-id="${chip.id}">
+              📊 Stats
+            </button>
             <button class="btn-secondary btn-xs" type="button" data-action="disconnect" data-chip-id="${chip.id}">
               Desconectar
             </button>
@@ -1121,49 +1131,60 @@ async function loadChips(options = {}) {
     `;
     table.appendChild(row);
 
-    const heatUpButton = row.querySelector("[data-test=\"chip-action-heatup\"]");
-    const heatUpInfo = chip.extra_data?.heat_up;
-    if (heatUpInfo?.status === "in_progress") {
-      heatUpButton?.setAttribute("disabled", "true");
-      if (heatUpButton) heatUpButton.textContent = "Heat-up em andamento";
-    } else {
-      heatUpButton?.addEventListener("click", async () => {
-        await handleChipHeatUp(heatUpButton);
+    // View Stats button
+    const viewStatsButton = row.querySelector("[data-action=\"view-stats\"]");
+    if (viewStatsButton) {
+      viewStatsButton.addEventListener("click", async () => {
+        await openMaturationStatsModal(chip.id);
+      });
+    }
+    
+    // Stop heat-up button
+    const stopHeatUpButton = row.querySelector("[data-action=\"stop-heatup\"]");
+    if (stopHeatUpButton) {
+      stopHeatUpButton.addEventListener("click", async () => {
+        if (confirm(`Deseja parar o aquecimento do chip "${chip.alias}"?`)) {
+          await handleStopHeatUp(chip.id);
+        }
       });
     }
     
     // Disconnect button
     const disconnectButton = row.querySelector("[data-action=\"disconnect\"]");
-    disconnectButton?.addEventListener("click", async () => {
-      if (confirm(`Deseja desconectar o chip "${chip.alias}"?`)) {
-        await handleChipDisconnect(chip.id);
-      }
-    });
+    if (disconnectButton) {
+      disconnectButton.addEventListener("click", async () => {
+        if (confirm(`Deseja desconectar o chip "${chip.alias}"?`)) {
+          await handleChipDisconnect(chip.id);
+        }
+      });
+    }
     
     // Delete button
     const deleteButton = row.querySelector("[data-action=\"delete\"]");
-    deleteButton?.addEventListener("click", async (e) => {
-      // Prevenir múltiplos cliques
-      if (deleteButton.disabled) return;
-      
-      const heatUpStatus = chip.extra_data?.heat_up?.status;
-      let confirmMsg = `Tem certeza que deseja DELETAR o chip "${chip.alias}"?`;
-      
-      if (heatUpStatus === "in_progress") {
-        confirmMsg = `⚠️ ATENÇÃO: O chip "${chip.alias}" está EM AQUECIMENTO!\n\nDeletar agora interromperá o processo de aquecimento.\n\nTem certeza que deseja DELETAR?`;
-      } else if (chip.status === "connected") {
-        confirmMsg = `⚠️ ATENÇÃO: O chip "${chip.alias}" está CONECTADO!\n\nDeletar desconectará o WhatsApp.\n\nTem certeza que deseja DELETAR?`;
-      }
-      
-      confirmMsg += "\n\nEsta ação não pode ser desfeita.";
-      
-      if (confirm(confirmMsg)) {
-        deleteButton.disabled = true;
-        deleteButton.textContent = "Deletando...";
-        await handleChipDelete(chip.id);
-        // Não precisa re-habilitar pois a linha será removida após reload
-      }
-    });
+    if (deleteButton) {
+      deleteButton.addEventListener("click", async (e) => {
+        // Prevenir múltiplos cliques
+        if (deleteButton.disabled) return;
+        
+        const heatUpStatus = chip.extra_data?.heat_up?.status;
+        let confirmMsg = `Tem certeza que deseja DELETAR o chip "${chip.alias}"?`;
+        
+        if (heatUpStatus === "in_progress") {
+          confirmMsg = `⚠️ ATENÇÃO: O chip "${chip.alias}" está EM AQUECIMENTO!\n\nDeletar agora interromperá o processo de aquecimento.\n\nTem certeza que deseja DELETAR?`;
+        } else if (chip.status === "connected") {
+          confirmMsg = `⚠️ ATENÇÃO: O chip "${chip.alias}" está CONECTADO!\n\nDeletar desconectará o WhatsApp.\n\nTem certeza que deseja DELETAR?`;
+        }
+        
+        confirmMsg += "\n\nEsta ação não pode ser desfeita.";
+        
+        if (confirm(confirmMsg)) {
+          deleteButton.disabled = true;
+          deleteButton.textContent = "Deletando...";
+          await handleChipDelete(chip.id);
+          // Não precisa re-habilitar pois a linha será removida após reload
+        }
+      });
+    }
   });
 
   if (!silent) {
@@ -3490,6 +3511,275 @@ if (window.location.pathname.includes("/billing")) {
   document.addEventListener("DOMContentLoaded", bindBillingPage);
 }
 
+// ========================================
+// HEAT-UP EM GRUPO
+// ========================================
+
+async function openGroupHeatUpModal() {
+  const modal = document.getElementById("group-heatup-modal");
+  const backdrop = document.getElementById("group-heatup-backdrop");
+  if (!modal || !backdrop) return;
+
+  // Carregar chips conectados
+  const response = await apiFetch("/chips");
+  if (!response?.ok) {
+    setChipFeedback("Não foi possível carregar os chips.", "error");
+    return;
+  }
+
+  const chips = await response.json();
+  const connectedChips = chips.filter(chip => chip.status === "connected");
+
+  if (connectedChips.length < 2) {
+    setChipFeedback("Você precisa de pelo menos 2 chips conectados para aquecimento em grupo.", "warning");
+    return;
+  }
+
+  const container = document.getElementById("group-heatup-chips");
+  if (!container) return;
+
+  container.innerHTML = "";
+  connectedChips.forEach(chip => {
+    const div = document.createElement("div");
+    div.className = "flex items-center gap-3 p-2 border rounded hover:bg-slate-50 cursor-pointer";
+    div.innerHTML = `
+      <input type="checkbox" id="chip-${chip.id}" name="group_chips" value="${chip.id}" class="cursor-pointer" />
+      <label for="chip-${chip.id}" class="flex-1 cursor-pointer text-sm font-medium text-slate-700">
+        ${chip.alias} <span class="text-xs text-slate-500">(Saúde: ${chip.health_score ?? "--"})</span>
+      </label>
+    `;
+    container.appendChild(div);
+  });
+
+  modal.classList.remove("hidden");
+  backdrop.classList.remove("hidden");
+}
+
+function closeGroupHeatUpModal() {
+  const modal = document.getElementById("group-heatup-modal");
+  const backdrop = document.getElementById("group-heatup-backdrop");
+  modal?.classList.add("hidden");
+  backdrop?.classList.add("hidden");
+  
+  // Limpar seleção
+  document.querySelectorAll("[name='group_chips']:checked").forEach(el => el.checked = false);
+  const textarea = document.getElementById("group-heatup-messages");
+  if (textarea) textarea.value = "";
+}
+
+async function handleGroupHeatUpStart() {
+  const selectedChips = Array.from(document.querySelectorAll("[name='group_chips']:checked")).map(el => el.value);
+  
+  if (selectedChips.length < 2) {
+    alert("Selecione pelo menos 2 chips para iniciar o aquecimento em grupo.");
+    return;
+  }
+  
+  if (selectedChips.length > 10) {
+    alert("Você pode selecionar no máximo 10 chips para aquecimento em grupo.");
+    return;
+  }
+
+  const customMessagesText = document.getElementById("group-heatup-messages")?.value?.trim();
+  const customMessages = customMessagesText ? customMessagesText.split("\n").filter(msg => msg.trim()) : null;
+
+  const startButton = document.getElementById("group-heatup-start");
+  if (startButton) startButton.disabled = true;
+
+  const response = await apiFetch("/chips/heat-up/group", {
+    method: "POST",
+    body: JSON.stringify({
+      chip_ids: selectedChips,
+      custom_messages: customMessages,
+    }),
+  });
+
+  if (!response?.ok) {
+    let detail = "Não foi possível iniciar o aquecimento em grupo.";
+    try {
+      const error = await response.json();
+      if (typeof error?.detail === "string") {
+        detail = error.detail;
+      }
+    } catch (err) {
+      // Ignora erro ao ler resposta
+    }
+    alert(detail);
+    if (startButton) startButton.disabled = false;
+    return;
+  }
+
+  const result = await response.json();
+  setChipFeedback(`Aquecimento em grupo iniciado com sucesso! ${selectedChips.length} chips estão aquecendo.`, "success");
+  closeGroupHeatUpModal();
+  await loadChips({ silent: true });
+  if (startButton) startButton.disabled = false;
+}
+
+document.getElementById("group-heatup-start")?.addEventListener("click", handleGroupHeatUpStart);
+document.getElementById("group-heatup-close")?.addEventListener("click", closeGroupHeatUpModal);
+document.getElementById("group-heatup-cancel")?.addEventListener("click", closeGroupHeatUpModal);
+document.getElementById("group-heatup-backdrop")?.addEventListener("click", closeGroupHeatUpModal);
+
+async function handleStopHeatUp(chipId) {
+  setChipFeedback("Parando aquecimento...", "info");
+  
+  const response = await apiFetch(`/chips/${chipId}/stop-heat-up`, {
+    method: "POST",
+  });
+  
+  if (!response?.ok) {
+    let detail = "Não foi possível parar o aquecimento.";
+    try {
+      const error = await response.json();
+      if (typeof error?.detail === "string") {
+        detail = error.detail;
+      }
+    } catch (err) {
+      // Ignora erro ao ler resposta
+    }
+    setChipFeedback(detail, "error");
+    return;
+  }
+  
+  const result = await response.json();
+  setChipFeedback(result.message ?? "Aquecimento parado com sucesso.", "success");
+  await loadChips({ silent: true });
+}
+
+async function openMaturationStatsModal(chipId) {
+  const modal = document.getElementById("maturation-stats-modal");
+  const backdrop = document.getElementById("maturation-stats-backdrop");
+  if (!modal || !backdrop) return;
+
+  modal.classList.remove("hidden");
+  backdrop.classList.remove("hidden");
+  
+  // Carregar estatísticas
+  await loadMaturationStats(chipId);
+  
+  // Bind refresh button
+  const refreshButton = document.getElementById("maturation-stats-refresh");
+  if (refreshButton) {
+    refreshButton.onclick = () => loadMaturationStats(chipId);
+  }
+}
+
+async function loadMaturationStats(chipId) {
+  const contentDiv = document.getElementById("maturation-stats-content");
+  if (!contentDiv) return;
+  
+  contentDiv.innerHTML = '<p class="text-center text-slate-500">Carregando...</p>';
+  
+  const response = await apiFetch(`/chips/${chipId}/maturation-stats`);
+  
+  if (!response?.ok) {
+    contentDiv.innerHTML = '<p class="text-center text-red-600">Erro ao carregar estatísticas.</p>';
+    return;
+  }
+  
+  const stats = await response.json();
+  
+  if (stats.status === "never_started") {
+    contentDiv.innerHTML = `
+      <div class="text-center space-y-3 py-8">
+        <p class="text-6xl">😴</p>
+        <p class="text-lg font-medium text-slate-700">${stats.alias}</p>
+        <p class="text-sm text-slate-500">${stats.message}</p>
+      </div>
+    `;
+    return;
+  }
+  
+  const statusEmoji = {
+    in_progress: "🔥",
+    completed: "✅",
+    stopped: "⏸️"
+  }[stats.status] || "📊";
+  
+  const statusText = {
+    in_progress: "Em andamento",
+    completed: "Concluído",
+    stopped: "Parado"
+  }[stats.status] || stats.status;
+  
+  const isReady = stats.is_ready_for_campaign;
+  const readyClass = isReady ? "text-emerald-600" : "text-amber-600";
+  const readyEmoji = isReady ? "✅" : "⏳";
+  
+  contentDiv.innerHTML = `
+    <div class="space-y-4">
+      <div class="text-center pb-4 border-b">
+        <p class="text-5xl mb-2">${statusEmoji}</p>
+        <p class="text-xl font-bold text-slate-800">${stats.alias}</p>
+        <p class="text-sm text-slate-500">${statusText}</p>
+      </div>
+      
+      <div class="grid grid-cols-2 gap-4">
+        <div class="bg-slate-50 p-3 rounded-lg">
+          <p class="text-xs text-slate-500 uppercase">Fase Atual</p>
+          <p class="text-2xl font-bold text-slate-800">${stats.current_phase}/${stats.total_phases}</p>
+        </div>
+        
+        <div class="bg-slate-50 p-3 rounded-lg">
+          <p class="text-xs text-slate-500 uppercase">Mensagens na Fase</p>
+          <p class="text-2xl font-bold text-slate-800">${stats.messages_sent_in_phase ?? 0}</p>
+        </div>
+        
+        <div class="bg-slate-50 p-3 rounded-lg">
+          <p class="text-xs text-slate-500 uppercase">Tempo Decorrido</p>
+          <p class="text-2xl font-bold text-slate-800">${stats.elapsed_hours}h</p>
+        </div>
+        
+        <div class="bg-slate-50 p-3 rounded-lg">
+          <p class="text-xs text-slate-500 uppercase">Tempo Total</p>
+          <p class="text-2xl font-bold text-slate-800">${stats.total_hours}h</p>
+        </div>
+      </div>
+      
+      <div class="bg-slate-50 p-4 rounded-lg">
+        <div class="flex justify-between items-center mb-2">
+          <p class="text-xs font-medium text-slate-700 uppercase">Progresso</p>
+          <p class="text-xs font-bold text-slate-700">${stats.progress_percent}%</p>
+        </div>
+        <div class="w-full bg-slate-200 rounded-full h-3 overflow-hidden">
+          <div class="h-full bg-gradient-to-r from-orange-400 to-emerald-500 transition-all duration-500" style="width: ${stats.progress_percent}%"></div>
+        </div>
+      </div>
+      
+      <div class="bg-gradient-to-r from-slate-50 to-slate-100 p-4 rounded-lg border-l-4 ${isReady ? 'border-emerald-500' : 'border-amber-500'}">
+        <p class="text-sm font-medium ${readyClass} flex items-center gap-2">
+          <span class="text-xl">${readyEmoji}</span>
+          ${stats.recommendation}
+        </p>
+      </div>
+      
+      ${stats.group_id ? `
+        <div class="text-xs text-slate-500 text-center pt-2 border-t">
+          Grupo: <code class="bg-slate-100 px-2 py-1 rounded">${stats.group_id}</code>
+        </div>
+      ` : ''}
+      
+      <div class="text-xs text-slate-400 space-y-1 pt-2 border-t">
+        ${stats.started_at ? `<p>Iniciado: ${formatDate(stats.started_at)}</p>` : ''}
+        ${stats.completed_at ? `<p>Concluído: ${formatDate(stats.completed_at)}</p>` : ''}
+        ${stats.stopped_at ? `<p>Parado: ${formatDate(stats.stopped_at)}</p>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function closeMaturationStatsModal() {
+  const modal = document.getElementById("maturation-stats-modal");
+  const backdrop = document.getElementById("maturation-stats-backdrop");
+  modal?.classList.add("hidden");
+  backdrop?.classList.add("hidden");
+}
+
+document.getElementById("maturation-stats-close")?.addEventListener("click", closeMaturationStatsModal);
+document.getElementById("maturation-stats-cancel")?.addEventListener("click", closeMaturationStatsModal);
+document.getElementById("maturation-stats-backdrop")?.addEventListener("click", closeMaturationStatsModal);
+
 // Cache bust: 1763061975
 // Cache bust: 1763065043 - Deletar e Desconectar chips
 // Cache bust: 1763065236 - Fix deletar chips + aviso aquecimento
@@ -3500,3 +3790,5 @@ if (window.location.pathname.includes("/billing")) {
 // Cache bust: 1763078456 - Better registration error messages
 // Cache bust: 1763082962 - Mercado Pago Sandbox working 100%
 // Cache bust: 1763083452 - Fix credit purchase redirect
+// Cache bust: 1731876543 - Group heat-up + maturation stats
+// Cache bust: 1731877890 - Fix event listeners for stats buttons

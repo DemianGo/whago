@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 from .config import settings
 from .core.redis import close_redis
 from .database import init_db, wait_for_db_readiness
-from .routes import auth, chips, campaigns, plans, users, dashboard, billing, frontend, reports, notifications, audit, messages, webhooks, api_keys, payments, admin, admin_proxies, user_proxy, waha_webhooks
+from .routes import auth, chips, campaigns, plans, users, dashboard, billing, frontend, reports, notifications, audit, messages, webhooks, api_keys, payments, admin, admin_proxies, admin_chips, user_proxy, waha_webhooks
 
 logger = logging.getLogger("whago.app")
 
@@ -51,6 +51,7 @@ def create_application() -> FastAPI:
     )
     app.include_router(auth.router)
     app.include_router(chips.router)
+    app.include_router(admin_chips.router)
     app.include_router(campaigns.router)
     app.include_router(plans.router)
     app.include_router(users.router)
