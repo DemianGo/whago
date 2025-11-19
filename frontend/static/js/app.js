@@ -2431,16 +2431,19 @@ function renderCampaignChips(chips, chipsInUse = new Set()) {
     container.appendChild(warning);
   }
   
+  // Pegar o chip selecionado (apenas 1)
+  const selectedChipId = campaignState.selectedChips.size > 0 ? Array.from(campaignState.selectedChips)[0] : null;
+  
   chips.forEach((chip) => {
     const card = document.createElement("label");
     const isConnected = (chip.status || "").toLowerCase() === "connected";
     const isInUse = chipsInUse.has(chip.id);
     const disabled = !isConnected || isInUse;
-    const isSelected = campaignState.selectedChips.has(chip.id);
+    const isSelected = selectedChipId === chip.id;
     
     // Se está desconectado ou em uso e estava selecionado, remover da seleção
     if (disabled && isSelected && isInUse) {
-      campaignState.selectedChips.delete(chip.id);
+      campaignState.selectedChips.clear();
     }
     
     let statusLabel = "";
@@ -2460,7 +2463,7 @@ function renderCampaignChips(chips, chipsInUse = new Set()) {
           </p>
           <p class="text-xs text-slate-500">Status: ${formatChipStatus(chip.status)}</p>
         </div>
-        <input type="checkbox" value="${chip.id}" ${disabled ? "disabled" : ""} ${isSelected && !disabled ? "checked" : ""} class="rounded border-slate-300" data-test="campaign-chip" />
+        <input type="radio" name="campaign-chip" value="${chip.id}" ${disabled ? "disabled" : ""} ${isSelected && !disabled ? "checked" : ""} class="border-slate-300" data-test="campaign-chip" />
       </div>
       <p class="text-xs text-slate-500">Saúde: ${chip.health_score ?? "--"}</p>
     `;
@@ -2471,23 +2474,23 @@ function renderCampaignChips(chips, chipsInUse = new Set()) {
 async function handleCampaignChipsSubmit(event) {
   event.preventDefault();
   if (!campaignState.campaignId) {
-    setCampaignFeedback("Crie a campanha antes de selecionar os chips.", "warning");
+    setCampaignFeedback("Crie a campanha antes de selecionar o chip.", "warning");
     return;
   }
-  const checkboxes = Array.from(document.querySelectorAll("#campaign-chips-list input[type='checkbox']:checked"));
-  if (!checkboxes.length) {
-    setCampaignFeedback("Selecione ao menos um chip para continuar.", "warning");
+  const selectedRadio = document.querySelector("#campaign-chips-list input[type='radio']:checked");
+  if (!selectedRadio) {
+    setCampaignFeedback("Selecione um chip para continuar.", "warning");
     return;
   }
-  const chipIds = checkboxes.map((input) => input.value);
-  campaignState.selectedChips = new Set(chipIds);
+  const chipId = selectedRadio.value;
+  campaignState.selectedChips = new Set([chipId]);
   const intervalSeconds = Number(document.getElementById("campaign-interval")?.value || "10");
   const randomize = Boolean(document.getElementById("campaign-randomize")?.checked);
   const response = await apiFetch(`/campaigns/${campaignState.campaignId}`, {
     method: "PUT",
     body: JSON.stringify({
       settings: {
-        chip_ids: chipIds,
+        chip_ids: [chipId],
         interval_seconds: Number.isFinite(intervalSeconds) && intervalSeconds > 0 ? intervalSeconds : 10,
         randomize_interval: randomize,
       },
