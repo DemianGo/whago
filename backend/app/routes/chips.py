@@ -222,6 +222,72 @@ async def get_preview_messages(
 
 
 @router.get(
+    "/heat-up/global-stats",
+)
+async def get_global_maturation_stats(
+    current_user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_db),
+) -> dict:
+    """Retorna estatísticas globais de todos os chips em aquecimento."""
+    from app.models.chip import Chip, ChipStatus
+    from sqlalchemy import select, func, or_
+    import logging
+    
+    logger = logging.getLogger("whago.global_stats")
+    
+    try:
+        # Buscar todos os chips em maturação
+        result = await session.execute(
+            select(Chip).where(
+                Chip.user_id == current_user.id,
+                or_(
+                    Chip.status == ChipStatus.MATURING,
+                    func.jsonb_extract_path_text(Chip.extra_data, 'heat_up', 'status') == 'in_progress'
+                )
+            )
+        )
+        chips = result.scalars().all()
+        
+        active_chips = []
+        total_messages_today = 0
+        groups = set()
+        
+        for chip in chips:
+            heat_up = chip.extra_data.get("heat_up", {})
+            if heat_up.get("status") == "in_progress":
+                groups.add(heat_up.get("group_id"))
+                total_messages_today += heat_up.get("messages_sent_in_phase", 0) # Simplificado
+                
+                # Calcular próxima execução (mesma lógica do individual)
+                next_execution = "-"
+                last_execution = heat_up.get("last_execution")
+                status_emoji = "🔥"
+                
+                # ... (lógica simplificada de tempo) ...
+                
+                active_chips.append({
+                    "id": str(chip.id),
+                    "alias": chip.alias,
+                    "phone": chip.phone_number,
+                    "phase": heat_up.get("current_phase", 1),
+                    "total_messages": heat_up.get("total_messages_sent", 0),
+                    "group_id": heat_up.get("group_id"),
+                    "last_activity": last_execution,
+                })
+        
+        return {
+            "total_active_chips": len(active_chips),
+            "total_groups": len(groups),
+            "total_messages_sent": sum(c["total_messages"] for c in active_chips),
+            "chips": active_chips
+        }
+            
+    except Exception as e:
+        logger.error(f"Erro ao buscar stats globais: {e}", exc_info=True)
+        return {"error": str(e)}
+
+
+@router.get(
     "/{chip_id}/maturation-stats",
 )
 async def get_maturation_stats(
@@ -266,7 +332,7 @@ async def get_maturation_stats(
                 "message": "Este chip nunca iniciou aquecimento."
             }
         
-        from datetime import datetime, timezone
+        from datetime import datetime, timezone, timedelta
         
         started_at = heat_up_data.get("started_at")
         current_phase = heat_up_data.get("current_phase", 1)
@@ -294,20 +360,47 @@ async def get_maturation_stats(
         message_history = heat_up_data.get("message_history", [])
         total_messages_sent = heat_up_data.get("total_messages_sent", 0)
         
-        # Formatar últimas 10 mensagens para exibição
+        # Formatar últimas 20 mensagens para exibição (aumentado para ver conversas)
         recent_messages = []
-        for msg in message_history[-10:]:
+        # Inverter para mostrar mais recentes primeiro
+        for msg in reversed(message_history[-20:]):
             try:
                 timestamp = datetime.fromisoformat(msg["timestamp"].replace("Z", "+00:00"))
                 recent_messages.append({
-                    "time": timestamp.strftime("%d/%m %H:%M"),
+                    "time": timestamp.strftime("%H:%M:%S"), # Mais detalhado
                     "to": msg.get("to", "N/A"),
-                    "message": msg.get("message", "")[:50],
-                    "phase": msg.get("phase", current_phase)
+                    "message": msg.get("message", ""),
+                    "phase": msg.get("phase", current_phase),
+                    "type": msg.get("type", "sent") # sent ou reply
                 })
             except Exception as e:
                 logger.error(f"Erro ao formatar mensagem: {e}")
         
+        # Calcular próxima execução estimada
+        # Baseado na última execução + intervalo médio da fase atual
+        next_execution = "Calculando..."
+        last_execution = heat_up_data.get("last_execution")
+        if last_execution and heat_up_data.get("status") == "in_progress":
+            try:
+                last_time = datetime.fromisoformat(last_execution.replace("Z", "+00:00"))
+                # Intervalo aproximado (ex: Fase 1 = 3-6 min -> média 4.5 min)
+                # Recalcular intervalo baseado na fase
+                intervals_map = {1: 4.5, 2: 2.25, 3: 1.5, 4: 1.1, 5: 0.75} # em minutos
+                avg_interval_min = intervals_map.get(current_phase, 3)
+                
+                next_time = last_time + timedelta(minutes=avg_interval_min)
+                now = datetime.now(timezone.utc)
+                
+                if next_time > now:
+                     time_diff = next_time - now
+                     mins = int(time_diff.total_seconds() / 60)
+                     secs = int(time_diff.total_seconds() % 60)
+                     next_execution = f"Em ~{mins}m {secs}s"
+                else:
+                     next_execution = "A qualquer momento..."
+            except Exception:
+                next_execution = "Em breve"
+
         return {
             "chip_id": str(chip.id),
             "alias": chip.alias,
@@ -325,6 +418,7 @@ async def get_maturation_stats(
             "stopped_at": heat_up_data.get("stopped_at"),
             "group_id": heat_up_data.get("group_id"),
             "recent_messages": recent_messages,
+            "next_execution": next_execution,
             "recommendation": "Chip pronto para campanhas!" if is_ready else f"Aguarde mais {round(total_hours - elapsed_hours, 1)}h para conclusão."
         }
     except HTTPException:

@@ -2,7 +2,7 @@
 Celery tasks para aquecimento automático de chips.
 
 Estratégia: Chips se aquecem conversando entre si, simulando comunicação
-interna de uma equipe/empresa.
+interna de uma equipe/empresa com comportamento humano (typing, delays, etc).
 """
 
 import asyncio
@@ -116,7 +116,7 @@ async def send_maturation_message(
     waha_base_url: str
 ) -> bool:
     """
-    Envia mensagem de aquecimento via WAHA Plus.
+    Envia mensagem de aquecimento via WAHA Plus com simulação humana.
     
     Args:
         chip: Chip remetente
@@ -129,27 +129,113 @@ async def send_maturation_message(
         True se enviou com sucesso, False caso contrário
     """
     try:
-        session_id = chip.extra_data.get("session_id") if chip.extra_data else None
+        session_id = chip.extra_data.get("waha_session") if chip.extra_data else None
         if not session_id:
             session_id = f"chip_{chip.id}"
+        
+        # Verificar se a sessão está pronta (WORKING)
+        waha_status = chip.extra_data.get("waha_status", "") if chip.extra_data else ""
+        if waha_status != "WORKING":
+            # Tentar verificar status real antes de desistir
+            try:
+                waha_client = WAHAClient(base_url=waha_base_url, api_key=waha_api_key)
+                session_info = await waha_client.get_session_status(session_id)
+                real_status = session_info.get("status")
+                
+                if real_status == "WORKING":
+                    # Atualizar status localmente para esta execução
+                    waha_status = "WORKING"
+                    # (A persistência no banco será feita pela task principal se necessário)
+            except Exception:
+                pass
+
+        if waha_status != "WORKING":
+            import logging
+            log = logging.getLogger("whago.chip_maturation")
+            log.warning(f"⚠️  Sessão {chip.alias} não está pronta (status: {waha_status})")
+            return False
         
         waha_client = WAHAClient(
             base_url=waha_base_url,
             api_key=waha_api_key
         )
         
+        # Preparar chatId
+        phone = target_phone.replace("+", "").replace("@c.us", "")
+        chat_id = f"{phone}@c.us"
+        
+        # 🎭 SIMULAÇÃO DE COMPORTAMENTO HUMANO AVANÇADO
+        
+        # 1. Ficar Online (Presence Available)
+        await waha_client.set_presence(session_id, available=True)
+        
+        # 2. Delay aleatório antes de abrir a conversa (pegar o celular)
+        await asyncio.sleep(random.uniform(2.0, 5.0))
+        
+        # 3. Marcar como Lido (Visualizado)
+        await waha_client.mark_seen(session_id, chat_id)
+        
+        # 4. Delay de leitura (tempo para ler a mensagem anterior ou pensar)
+        await asyncio.sleep(random.uniform(1.5, 4.0))
+        
+        # 5. Iniciar "digitando..."
+        await waha_client.send_typing(session_id, chat_id)
+        
+        # 6. Calcular tempo de digitação realista com hesitação
+        # Velocidade humana: 30-50 WPM (~2.5-4.5 chars/s)
+        chars_per_sec = random.uniform(2.5, 4.5)
+        base_typing_time = len(message) / chars_per_sec
+        
+        # Implementar "Efeito Distração/Hesitação" para mensagens médias/longas
+        if len(message) > 20 and random.random() < 0.4:  # 40% de chance de hesitar
+            # Começa a digitar...
+            part1_time = base_typing_time * 0.4
+            await asyncio.sleep(part1_time)
+            
+            # ...para de digitar (pensando/distração)...
+            await waha_client.stop_typing(session_id, chat_id)
+            pause_time = random.uniform(2.0, 5.0)
+            await asyncio.sleep(pause_time)
+            
+            # ...volta a digitar
+            await waha_client.send_typing(session_id, chat_id)
+            await asyncio.sleep(base_typing_time * 0.6)
+        else:
+            # Digitação contínua
+            await asyncio.sleep(base_typing_time)
+            
+        # 7. Parar "digitando..."
+        await waha_client.stop_typing(session_id, chat_id)
+        
+        # Delay curto antes de apertar enviar
+        await asyncio.sleep(random.uniform(0.3, 0.8))
+        
+        # 8. Enviar mensagem
         await waha_client.send_message(
             session_id=session_id,
             to=target_phone,
             text=message
         )
         
+        # 9. Ficar Online mais um pouco (esperando resposta ou saindo)
+        await asyncio.sleep(random.uniform(2.0, 6.0))
+        
+        # 10. Ficar Offline (Presence Unavailable)
+        await waha_client.set_presence(session_id, available=False)
+        
         return True
     
     except Exception as e:
         import logging
-        logger = logging.getLogger("whago.chip_maturation")
-        logger.error(f"Erro ao enviar mensagem de aquecimento: {e}")
+        log = logging.getLogger("whago.chip_maturation")
+        log.error(f"Erro ao enviar mensagem de aquecimento: {e}")
+        
+        # Se o erro for "getChat", significa que o número não está nos contatos
+        error_msg = str(e).lower()
+        if "getchat" in error_msg or "cannot read properties" in error_msg:
+            log.warning(f"💡 DICA: O número {target_phone} não está nos contatos do WhatsApp. "
+                       f"Envie uma mensagem manual primeiro para criar o chat.")
+        
         return False
 
 
@@ -204,6 +290,7 @@ async def process_group_maturation(group_chips: list[Chip], session):
     messages_per_hour = phase_info.get("messages_per_hour", 20)
     duration_hours = phase_info.get("duration_hours", 4)
     
+    from sqlalchemy.orm.attributes import flag_modified
     logger.info(f"📍 Fase {current_phase}/{len(plan)}: {messages_per_hour} msgs/hora por {duration_hours}h")
     
     # Usar mensagens customizadas ou padrão
@@ -215,8 +302,8 @@ async def process_group_maturation(group_chips: list[Chip], session):
         logger.info(f"💬 Usando {len(available_messages)} mensagens padrão")
     
     # Calcular quantas mensagens enviar nesta execução
-    # Task roda a cada 2 min (ou 1h), então envia uma fração das msgs/hora
-    messages_to_send = max(1, messages_per_hour // 30)  # A cada 2 min, envia ~1/30 da hora
+    # Task roda a cada 3 min (20 execuções/hora), então envia msgs/hora dividido por 20
+    messages_to_send = max(1, messages_per_hour // 20)
     
     logger.info(f"📨 Enviando {messages_to_send} mensagens nesta execução")
     
@@ -237,12 +324,47 @@ async def process_group_maturation(group_chips: list[Chip], session):
     min_interval, max_interval = calculate_interval_seconds(current_phase)
     logger.info(f"⏱️  Intervalo entre mensagens: {min_interval}-{max_interval} segundos")
     
-    # Buscar números de telefone do WAHA para chips que não têm
+    # Buscar números de telefone do WAHA para chips que não têm e VERIFICAR STATUS REAL
     waha_client = WAHAClient(base_url=waha_base_url, api_key=waha_api_key)
+    
     for chip in group_chips:
-        if not chip.phone_number:
+        # Verificação Ativa de Sanidade (Active Health Check)
+        current_status = chip.extra_data.get("waha_status") if chip.extra_data else None
+        
+        # Se status não é WORKING, verificar ativamente
+        if current_status != "WORKING":
             try:
-                session_id = chip.extra_data.get("session_id") if chip.extra_data else None
+                session_id = chip.extra_data.get("waha_session") if chip.extra_data else None
+                if not session_id:
+                    session_id = f"chip_{chip.id}"
+                
+                # Consulta ativa ao WAHA
+                session_info = await waha_client.get_session_status(session_id)
+                real_status = session_info.get("status")
+                
+                if real_status and real_status != current_status:
+                    logger.info(f"🔄 Auto-correção de status para {chip.alias}: {current_status} -> {real_status}")
+                    if not chip.extra_data: chip.extra_data = {}
+                    chip.extra_data["waha_status"] = real_status
+                    from sqlalchemy.orm.attributes import flag_modified
+                    flag_modified(chip, "extra_data")
+                    
+                    # Se ficou WORKING e não tem número, pegar agora
+                    if real_status == "WORKING" and not chip.phone_number:
+                         if session_info.get("me"):
+                            phone = session_info["me"].get("id", "").split("@")[0]
+                            if phone:
+                                chip.phone_number = f"+{phone}"
+                                flag_modified(chip, "phone_number")
+                                logger.info(f"📱 Número recuperado para {chip.alias}: {chip.phone_number}")
+
+            except Exception as e:
+                logger.warning(f"Falha na verificação ativa de status para {chip.alias}: {e}")
+
+        # Backup: Se ainda não tem número mas está WORKING (caso o if acima não tenha pego)
+        if not chip.phone_number and chip.extra_data.get("waha_status") == "WORKING":
+            try:
+                session_id = chip.extra_data.get("waha_session") if chip.extra_data else None
                 if not session_id:
                     session_id = f"chip_{chip.id}"
                 
@@ -264,22 +386,25 @@ async def process_group_maturation(group_chips: list[Chip], session):
     
     for i in range(messages_to_send):
         # Escolher remetente e destinatário aleatórios (diferentes)
-        # Filtrar apenas chips com phone_number
-        chips_with_phone = [c for c in group_chips if c.phone_number]
+        # Filtrar apenas chips com phone_number E com sessão WORKING
+        chips_ready = [
+            c for c in group_chips 
+            if c.phone_number and c.extra_data and c.extra_data.get("waha_status") == "WORKING"
+        ]
         
-        if len(chips_with_phone) < 2:
-            logger.warning(f"⚠️  Grupo tem apenas {len(chips_with_phone)} chip(s) com número. Aguardando próxima execução...")
+        if len(chips_ready) < 2:
+            logger.warning(f"⚠️  Grupo tem apenas {len(chips_ready)} chip(s) prontos (WORKING). Aguardando próxima execução...")
             break
         
-        sender = random.choice(chips_with_phone)
-        receiver = random.choice([c for c in chips_with_phone if c.id != sender.id])
+        sender = random.choice(chips_ready)
+        receiver = random.choice([c for c in chips_ready if c.id != sender.id])
         
         # Escolher mensagem aleatória
         message = random.choice(available_messages)
         
         logger.info(f"📤 {sender.alias} → {receiver.alias}: '{message[:30]}...'")
         
-        # ENVIAR VIA WAHA PLUS
+        # 1. ENVIAR MENSAGEM INICIAL (PERGUNTA/SAUDAÇÃO)
         success = await send_maturation_message(
             chip=sender,
             target_phone=receiver.phone_number,
@@ -301,13 +426,62 @@ async def process_group_maturation(group_chips: list[Chip], session):
                 "to": receiver.alias,
                 "to_phone": receiver.phone_number,
                 "message": message,
-                "phase": current_phase
+                "phase": current_phase,
+                "type": "sent"
             })
+
+            # -------------------------------------------------------------------------
+            # 2. ENVIAR RESPOSTA (PING-PONG) PARA GARANTIR INTERAÇÃO
+            # -------------------------------------------------------------------------
+            # Simular tempo de leitura/pensamento da outra pessoa
+            read_delay = random.uniform(10.0, 25.0)
+            logger.info(f"   ⏳ {receiver.alias} lendo e pensando ({read_delay:.1f}s)...")
+            await asyncio.sleep(read_delay)
+
+            # Escolher mensagem de resposta adequada
+            reply_msg = get_random_message("responses") if random.random() > 0.3 else get_random_message()
+            
+            logger.info(f"↩️  RESPOSTA {receiver.alias} → {sender.alias}: '{reply_msg[:30]}...'")
+            
+            reply_success = await send_maturation_message(
+                chip=receiver,
+                target_phone=sender.phone_number,
+                message=reply_msg,
+                waha_api_key=waha_api_key,
+                waha_base_url=waha_base_url
+            )
+            
+            if reply_success:
+                messages_sent_count += 1
+                logger.info(f"   ✅ Resposta enviada com sucesso!")
+                
+                # Salvar no histórico do receiver (que agora enviou)
+                if not receiver.extra_data.get("heat_up", {}).get("message_history"):
+                    receiver.extra_data.setdefault("heat_up", {})["message_history"] = []
+                
+                receiver.extra_data["heat_up"]["message_history"].append({
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "to": sender.alias,
+                    "to_phone": sender.phone_number,
+                    "message": reply_msg,
+                    "phase": current_phase,
+                    "type": "reply"
+                })
+            else:
+                logger.error(f"   ❌ Falha ao enviar resposta")
+
+            # -------------------------------------------------------------------------
             
             # Manter apenas últimas 50 mensagens
             sender.extra_data["heat_up"]["message_history"] = \
                 sender.extra_data["heat_up"]["message_history"][-50:]
             
+            if reply_success:
+                 # Se houve resposta, salvar historico do receiver tambem
+                 receiver.extra_data["heat_up"]["message_history"] = \
+                    receiver.extra_data["heat_up"]["message_history"][-50:]
+                 flag_modified(receiver, "extra_data")
+
             from sqlalchemy.orm.attributes import flag_modified
             flag_modified(sender, "extra_data")
         else:
@@ -334,9 +508,28 @@ async def process_group_maturation(group_chips: list[Chip], session):
         logger.info(f"⏰ Fase iniciada há {elapsed_hours:.1f}h de {duration_hours}h")
         
         if elapsed_hours >= duration_hours:
-            logger.info(f"🎉 Fase {current_phase} completa! Avançando para fase {current_phase + 1}")
-            new_phase = current_phase + 1
-            new_phase_started_at = datetime.now(timezone.utc).isoformat()
+            logger.info(f"🎉 Fase {current_phase} completa!")
+            
+            # Se completou a última fase (5), marcar como completo
+            if current_phase >= len(plan):
+                logger.info(f"✨ Aquecimento COMPLETO! Chip pronto para campanhas")
+                new_phase = current_phase
+                new_phase_started_at = phase_started_at
+                
+                # Marcar todos os chips como CONNECTED e completo
+                for chip in group_chips:
+                    chip.status = ChipStatus.CONNECTED
+                    if chip.extra_data and "heat_up" in chip.extra_data:
+                        chip.extra_data["heat_up"]["status"] = "completed"
+                        chip.extra_data["heat_up"]["completed_at"] = datetime.now(timezone.utc).isoformat()
+                        from sqlalchemy.orm.attributes import flag_modified
+                        flag_modified(chip, "extra_data")
+                        flag_modified(chip, "status")
+            else:
+                # Avançar para próxima fase
+                new_phase = current_phase + 1
+                new_phase_started_at = datetime.now(timezone.utc).isoformat()
+                logger.info(f"➡️  Avançando para fase {new_phase}")
         else:
             new_phase = current_phase
             new_phase_started_at = phase_started_at
@@ -568,4 +761,3 @@ async def _execute_maturation_cycle():
         finally:
             await engine.dispose()
             logger.info("=" * 80)
-

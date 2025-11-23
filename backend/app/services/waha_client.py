@@ -85,18 +85,12 @@ class WAHAClient:
             except httpx.HTTPStatusError:
                 pass  # Sessão não existe, ok
 
-            # Configurar proxy E fingerprinting se fornecido
-            config_data = {}
+            # Configurar proxy E fingerprinting dinâmico
+            from .fingerprint_service import FingerprintService
             
-            # ✅ FINGERPRINTING: Simular dispositivo Android real (flat key-value)
-            config_data["metadata"] = {
-                "platform": "android",
-                "browser_name": "Chrome",
-                "browser_version": "119.0.0.0",
-                "device_manufacturer": "Samsung",
-                "device_model": "Galaxy S21",
-                "device_os_version": "13"
-            }
+            # Gerar fingerprint consistente baseado no alias (session_id)
+            fingerprint = FingerprintService.get_fingerprint(alias)
+            config_data = fingerprint
             
             if proxy_url:
                 # Extrair componentes do proxy URL
@@ -184,6 +178,7 @@ class WAHAClient:
                 "tenant_id": tenant_id,
                 "user_id": user_id,
                 "engine": final_data.get("engine", {}),
+                "fingerprint": fingerprint,  # Retornar fingerprint usado
             }
             
         except httpx.HTTPError as e:
@@ -335,6 +330,85 @@ class WAHAClient:
             logger.error(f"Erro ao deletar sessão: {e}")
             return {"success": False, "session_id": session_id, "error": str(e)}
 
+    async def send_typing(self, session_id: str, chat_id: str) -> None:
+        """Envia status 'digitando...' para o chat."""
+        client = await self._get_client()
+        try:
+            await client.post(
+                "/api/startTyping",
+                json={"session": session_id, "chatId": chat_id}
+            )
+        except httpx.HTTPError:
+            pass  # Ignorar erros de typing (feature visual apenas)
+
+    async def stop_typing(self, session_id: str, chat_id: str) -> None:
+        """Para status 'digitando...'."""
+        client = await self._get_client()
+        try:
+            await client.post(
+                "/api/stopTyping",
+                json={"session": session_id, "chatId": chat_id}
+            )
+        except httpx.HTTPError:
+            pass
+
+    async def mark_seen(self, session_id: str, chat_id: str) -> None:
+        """Marca chat como lido (visualizado)."""
+        client = await self._get_client()
+        try:
+            # WAHA Plus usa /api/sendSeen
+            await client.post(
+                "/api/sendSeen",
+                json={"session": session_id, "chatId": chat_id}
+            )
+        except httpx.HTTPError:
+            pass  # Ignorar erros de visualização
+
+    async def set_presence(self, session_id: str, available: bool = True) -> None:
+        """
+        Define status de presença (Online/Offline).
+        available=True -> Online
+        available=False -> Offline
+        """
+        client = await self._get_client()
+        # Tentar endpoints específicos primeiro (comum em algumas versões do WAHA Plus)
+        endpoint = "/api/sendPresenceAvailable" if available else "/api/sendPresenceUnavailable"
+        
+        try:
+            response = await client.post(
+                endpoint,
+                json={"session": session_id}
+            )
+            
+            # Se endpoint específico não existe (404), tentar endpoint genérico padrão WAHA
+            if response.status_code == 404:
+                fallback_endpoint = "/api/sendPresence"
+                payload = {
+                    "session": session_id,
+                    "presence": "available" if available else "unavailable"
+                }
+                await client.post(fallback_endpoint, json=payload)
+                
+        except httpx.HTTPError as e:
+            # Logar aviso mas não bloquear fluxo principal
+            logger.warning(f"Falha não-bloqueante ao definir presença ({endpoint}): {e}")
+            pass
+
+    async def send_reaction(self, session_id: str, message_id: str, emoji: str) -> None:
+        """Envia reação (emoji) para uma mensagem."""
+        client = await self._get_client()
+        try:
+            await client.post(
+                "/api/sendReaction",
+                json={
+                    "session": session_id,
+                    "messageId": message_id,
+                    "text": emoji
+                }
+            )
+        except httpx.HTTPError:
+            pass
+
     async def send_message(
         self,
         session_id: str,
@@ -355,16 +429,16 @@ class WAHAClient:
         client = await self._get_client()
         
         try:
-            # Garantir formato correto do número (sem + @ ou @s.whatsapp.net)
-            phone = to.replace("+", "").replace("@s.whatsapp.net", "").replace("@", "")
+            # Garantir formato correto do número (sem + @ ou sufixos)
+            phone = to.replace("+", "").replace("@s.whatsapp.net", "").replace("@c.us", "").replace("@", "")
             
             payload = {
                 "session": session_id,
-                "chatId": f"{phone}@s.whatsapp.net",
+                "chatId": f"{phone}@c.us",
                 "text": text,
             }
             
-            logger.info(f"📨 Enviando para WAHA: session={session_id}, chatId={phone}@s.whatsapp.net")
+            logger.info(f"📨 Enviando para WAHA: session={session_id}, chatId={phone}@c.us")
             
             response = await client.post(
                 "/api/sendText",

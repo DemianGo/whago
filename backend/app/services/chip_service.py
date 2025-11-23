@@ -160,6 +160,7 @@ class ChipService:
             chip.extra_data["waha_session"] = session_name
             chip.extra_data["waha_status"] = waha_response.get("status")
             chip.extra_data["proxy_enabled"] = bool(proxy_url)
+            chip.extra_data["fingerprint"] = waha_response.get("fingerprint")  # Salvar fingerprint usado
             
             # ✅ Marcar extra_data como modificado para o SQLAlchemy detectar as mudanças
             from sqlalchemy.orm.attributes import flag_modified
@@ -274,6 +275,20 @@ class ChipService:
         # Deletar do banco de dados (cascade vai remover assignment)
         await self.session.delete(chip)
         await self.session.commit()
+        
+        # ✅ VERIFICAR SE O USUÁRIO AINDA TEM CHIPS
+        # Se não tiver mais nenhum chip, remover o container para economizar recursos
+        result = await self.session.execute(
+            select(func.count(Chip.id)).where(Chip.user_id == user.id)
+        )
+        remaining_chips = result.scalar_one()
+        
+        if remaining_chips == 0:
+            logger.info(f"Usuário {user.id} não possui mais chips. Removendo container WAHA Plus para liberar recursos.")
+            try:
+                await self.container_manager.delete_user_container(str(user.id))
+            except Exception as e:
+                logger.error(f"Erro ao remover container ocioso do usuário {user.id}: {e}")
 
     async def reconnect_chip(
         self,

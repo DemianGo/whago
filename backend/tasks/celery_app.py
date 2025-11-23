@@ -51,8 +51,7 @@ celery_app.conf.update(
         },
         "execute-chip-maturation": {
             "task": "execute_chip_maturation_cycle",
-            "schedule": 120.0,  # A cada 2 minutos (para teste)
-            # Para produção: 3600.0 (1 hora)
+            "schedule": 180.0,  # A cada 3 minutos (20 execuções/hora)
         },
     },
 )

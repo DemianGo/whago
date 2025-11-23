@@ -165,6 +165,20 @@ class ChipHeatUpService:
         
         await self.session.commit()
         
+        # 🚀 Disparar tarefa imediatamente (Fire & Forget)
+        # Isso garante feedback visual rápido para o usuário sem esperar o cron (3 min)
+        try:
+            from tasks.chip_maturation_tasks import execute_chip_maturation_cycle
+            execute_chip_maturation_cycle.delay()
+            import logging
+            logger = logging.getLogger("whago.chip_heat_up")
+            logger.info(f"Tarefa de maturação disparada imediatamente para o grupo {group_id}")
+        except Exception as e:
+            # Não falhar o request se o Celery estiver indisponível, apenas logar
+            import logging
+            logger = logging.getLogger("whago.chip_heat_up")
+            logger.warning(f"Falha ao disparar tarefa imediata: {e}")
+        
         # Preparar response
         stage_models = [ChipHeatUpStage(**stage) for stage in stages]
         recommended_total = sum(stage["duration_hours"] for stage in stages)
@@ -213,7 +227,12 @@ class ChipHeatUpService:
                 detail="Chip não encontrado."
             )
         
-        if chip.status != ChipStatus.MATURING:
+        # Verificar se tem heat_up ativo
+        extra = chip.extra_data.copy() if chip.extra_data else {}
+        heat_up_data = extra.get("heat_up", {})
+        heat_status = heat_up_data.get("status", "")
+        
+        if heat_status not in ["in_progress", "active"]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Chip não está em aquecimento."
@@ -222,7 +241,6 @@ class ChipHeatUpService:
         # Parar aquecimento
         chip.status = ChipStatus.CONNECTED
         
-        extra = chip.extra_data.copy() if chip.extra_data else {}
         if "heat_up" in extra:
             extra["heat_up"]["status"] = "stopped"
             extra["heat_up"]["stopped_at"] = datetime.now(timezone.utc).isoformat()

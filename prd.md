@@ -3,7 +3,7 @@
 ## 1. VISÃO GERAL DO PRODUTO
 
 ### 1.1 Descrição
-WHAGO é uma plataforma SaaS multi-usuário para envio de mensagens em massa via WhatsApp, utilizando a biblioteca Baileys. A plataforma permite que empresas gerenciem múltiplos chips de WhatsApp, enviem campanhas de mensagens para listas de contatos e monitorem resultados em tempo real.
+WHAGO é uma plataforma SaaS multi-usuário para envio de mensagens em massa via WhatsApp, utilizando a engine WAHA Plus. A plataforma permite que empresas gerenciem múltiplos chips de WhatsApp, enviem campanhas de mensagens para listas de contatos e monitorem resultados em tempo real.
 
 ### 1.2 Problema que Resolve
 Empresas e profissionais precisam enviar mensagens em massa via WhatsApp de forma eficiente, gerenciar múltiplos números, controlar gastos e ter relatórios detalhados das campanhas, sem depender de soluções caras ou APIs oficiais limitadas.
@@ -26,6 +26,7 @@ Criar uma plataforma completa, escalável e rentável que permita envio de mensa
 - **Processamento Assíncrono**: Celery com Redis como broker
 - **Armazenamento**: ✅ PostgreSQL (sessões + dados) + Volumes Docker
 - **Proxy**: ✅ DataImpulse SOCKS5 (residencial brasileiro)
+- **Camuflagem**: ✅ Fingerprinting Avançado Nativo (Python) com 60+ dispositivos e Simulação Humana
 
 ### 2.2 Estrutura de Diretórios
 ```
@@ -56,8 +57,9 @@ whago/
 │   │   │   ├── chip_service.py (✅ integrado WAHA Plus)
 │   │   │   ├── campaign_service.py
 │   │   │   ├── billing_service.py
-│   │   │   ├── waha_client.py (✅ atualizado multi-session)
-│   │   │   ├── waha_container_manager.py (✅ novo - 535 linhas)
+│   │   │   ├── waha_client.py (✅ atualizado multi-session + fingerprinting + simulação humana)
+│   │   │   ├── waha_container_manager.py (✅ novo - gerenciamento dinâmico)
+│   │   │   ├── fingerprint_service.py (✅ novo - camuflagem avançada)
 │   │   │   ├── proxy_service.py (✅ DataImpulse)
 │   │   │   ├── payment_service.py (✅ completo)
 │   │   │   └── payment_gateways/ (✅ Mercado Pago, PayPal, Stripe)
@@ -73,11 +75,10 @@ whago/
 │   ├── tasks/
 │   │   ├── celery_app.py
 │   │   ├── message_tasks.py
-│   │   └── chip_monitor_tasks.py
+│   │   ├── chip_monitor_tasks.py
+│   │   └── chip_maturation_tasks.py (✅ novo - fluxo humano avançado)
 │   ├── requirements.txt
 │   └── .env.example
-├── baileys-service/ (depreciado - mantido para legacy)
-│   └── ... (código original Baileys)
 ├── waha-plus-containers/ (✅ dinâmicos via Docker API)
 │   ├── waha_plus_user_{uuid1}/ (porta 3100)
 │   │   └── sessões: chip_*, chip_*, ...
@@ -347,12 +348,13 @@ Proteger IPs dos chips WhatsApp usando proxies residenciais para evitar baniment
 2. ✅ Sistema verifica limite do plano
 3. ✅ Sistema verifica/cria container WAHA Plus do usuário (1 por usuário)
 4. ✅ Sistema atribui proxy DataImpulse automaticamente (session ID único)
-5. ✅ Cria sessão no WAHA Plus com nome `chip_{uuid}` (via proxy)
-6. ✅ QR Code é gerado em formato PNG base64
-7. ✅ Frontend obtém QR Code via API REST
-8. ✅ Usuário escaneia QR Code com WhatsApp
-9. ✅ Webhooks WAHA atualizam status do chip automaticamente
-10. ✅ Sessão persistida no PostgreSQL (sobrevive a restarts)
+5. ✅ **Fingerprint Service** gera metadados únicos (Samsung, Motorola, Xiaomi)
+6. ✅ Cria sessão no WAHA Plus com nome `chip_{uuid}` (via proxy + fingerprint)
+7. ✅ QR Code é gerado em formato PNG base64
+8. ✅ Frontend obtém QR Code via API REST
+9. ✅ Usuário escaneia QR Code com WhatsApp
+10. ✅ Webhooks WAHA atualizam status do chip automaticamente
+11. ✅ Sessão persistida no PostgreSQL (sobrevivem a restarts)
 
 **Estados do Chip:**
 - **Aguardando QR** (amarelo): aguardando escaneamento
@@ -368,6 +370,7 @@ Proteger IPs dos chips WhatsApp usando proxies residenciais para evitar baniment
 - Número do WhatsApp (exibido após conexão)
 - Status atual
 - Proxy utilizado (região + health score)
+- Fingerprint (Device Model + OS + Browser)
 - Data/hora da conexão
 - Mensagens enviadas hoje
 - Mensagens enviadas no mês
@@ -379,17 +382,26 @@ Proteger IPs dos chips WhatsApp usando proxies residenciais para evitar baniment
 **Ações Disponíveis:**
 - **Reconectar**: gera novo QR code se desconectado
 - **Pausar/Retomar**: pausa temporária sem desconectar
-- **Desconectar**: remove sessão do Baileys
+- **Desconectar**: remove sessão do WAHA
 - **Excluir**: remove chip permanentemente (requer confirmação)
 - **Ver Detalhes**: modal com estatísticas completas
 - **Testar**: enviar mensagem de teste para o próprio número
 
-### 5.2 Maturador de Chips (BUSINESS/ENTERPRISE)
+### 5.2 Maturador de Chips ✅ **SIMULAÇÃO HUMANA IMPLEMENTADA**
 
-**⚠️ Nota sobre Fingerprinting:**
-- **WAHA Plus:** Fingerprinting interno (não configurável externamente)
-- **Mitigação:** Proxy DataImpulse residencial brasileiro (CRÍTICO para proteção)
-- **Rate Limiting:** Implementado no backend (controle de limites por plano)
+**⚠️ Nota sobre Fingerprinting e Comportamento:**
+- **WAHA Plus:** Suporta configuração de metadados via API na criação da sessão.
+- **Implementação:** Serviço `FingerprintService` no backend Python.
+- **Base de Dados:** 60+ dispositivos reais brasileiros (Samsung, Motorola, Xiaomi).
+- **Rotação:** Cada novo chip recebe um fingerprint único e persistente.
+- **Mitigação:** Proxy DataImpulse residencial + Fingerprint + Rate Limiting.
+- **✅ Humanização (ChipMaturationTasks):**
+  - **Presença:** Envia sinal `Online` antes de interagir e `Offline` após.
+  - **Visualização:** Envia `markSeen` (Blue Tick) antes de responder.
+  - **Typing:** Envia estado "Digitando..." com duração realista.
+  - **Velocidade Humana:** Simula 30-50 WPM (2.5-4.5 chars/s).
+  - **Hesitação:** Simula pausas para pensar/ler no meio da digitação.
+  - **Delays Aleatórios:** Pausas variáveis entre leitura e envio.
 
 **Objetivo:**
 Simular comportamento humano natural em chips novos para evitar banimentos precoces, aquecendo gradualmente o número antes de uso em massa.
@@ -1117,7 +1129,7 @@ Somos da {{empresa}} e temos uma proposta especial para você!
 **Criptografia:**
 - Senhas: bcrypt com salt (custo 12)
 - Tokens JWT: HS256, chave secreta forte
-- Credenciais de sessão Baileys: AES-256
+- Credenciais de sessão WAHA: AES-256
 - Comunicação: HTTPS obrigatório (TLS 1.2+)
 
 **Proteções:**
@@ -1188,7 +1200,6 @@ Somos da {{empresa}} e temos uma proposta especial para você!
 **Ambiente de Desenvolvimento:**
 - Docker + Docker Compose
 - Python 3.11+
-- Node.js 18+
 - PostgreSQL 15
 - Redis 7
 
@@ -1203,13 +1214,13 @@ Somos da {{empresa}} e temos uma proposta especial para você!
 **Componentes:**
 1. **Nginx** (Reverse Proxy + Load Balancer)
 2. **FastAPI Backend** (múltiplas instâncias via Gunicorn)
-3. **Node.js Baileys Service** (múltiplas instâncias via PM2)
+3. **WAHA Plus Containers** (Gerenciados dinamicamente)
 4. **PostgreSQL** (replicação master-slave)
 5. **Redis** (cache + broker Celery)
 6. **Celery Workers** (processamento assíncrono)
 
 **Escalabilidade:**
-- Horizontal: adicionar mais instâncias de backend/baileys
+- Horizontal: adicionar mais instâncias de backend
 - Vertical: aumentar recursos de banco de dados
 - Auto-scaling: baseado em CPU/memória (Kubernetes/Docker Swarm)
 
@@ -1238,8 +1249,8 @@ Somos da {{empresa}} e temos uma proposta especial para você!
 - Retenção: 7 dias (diário), 4 semanas (semanal), 12 meses (mensal)
 - Armazenamento: AWS S3 ou equivalente (criptografado)
 
-**Backup de Sessões Baileys:**
-- Incremental a cada 1 hora
+**Backup de Sessões WAHA:**
+- Incremental a cada 1 hora (Persistência PostgreSQL)
 - Retenção: 3 dias
 - Crítico para não perder conexões dos chips
 
@@ -1404,7 +1415,7 @@ Somos da {{empresa}} e temos uma proposta especial para você!
 - Mitigação: Maturador de chips, limites de envio, educação do usuário
 
 **Risco: Mudanças no WhatsApp**
-- Mitigação: Equipe dedicada a manter Baileys atualizado, monitoramento constante
+- Mitigação: Equipe dedicada a manter WAHA atualizado, monitoramento constante
 
 **Risco: Concorrência**
 - Mitigação: Inovação constante, foco em UX, comunidade forte
@@ -1434,6 +1445,8 @@ Somos da {{empresa}} e temos uma proposta especial para você!
      - [x] Arquitetura 1 container por usuário (até 100 simultâneos)
      - [x] Testes multi-usuário validados (2+ usuários, 10 chips cada)
      - [x] QR Codes gerados e validados
+     - [x] Fingerprinting Avançado (dispositivos reais, user-agents)
+     - [x] Simulação Humana Completa (typing, presence, markSeen, delays)
    - [x] **✅ SISTEMA DE PAGAMENTOS COMPLETO:**
      - [x] Payment gateways modular (Mercado Pago, PayPal, Stripe)
      - [x] Assinaturas recorrentes
@@ -1518,9 +1531,9 @@ SECRET_KEY=your-secret-key-here
 DATABASE_URL=postgresql://user:pass@localhost/whago
 REDIS_URL=redis://localhost:6379/0
 
-# Baileys Service
-BAILEYS_API_URL=http://localhost:3000
-BAILEYS_API_KEY=baileys-secret-key
+# WAHA Service
+WAHA_API_URL=http://localhost:3000
+WAHA_API_KEY=waha-secret-key
 
 # Payment Gateways
 STRIPE_SECRET_KEY=sk_live_...

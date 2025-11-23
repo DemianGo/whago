@@ -18,6 +18,7 @@ Painel administrativo para gerenciar operações internas do WHAGO: usuários, p
 - ✅ Alocação de portas: 3100-3199 (100 usuários simultâneos)
 - ✅ Persistência PostgreSQL (sessões sobrevivem restarts)
 - ✅ Proxy DataImpulse SOCKS5 (sticky session por chip)
+- ✅ **Camuflagem Avançada:** Fingerprinting, User-Agents reais e Simulação Humana (Typing, Presence, MarkSeen)
 - ✅ Webhooks automáticos (status sync)
 - ✅ Monitoramento de recursos (CPU/RAM por container)
 
@@ -207,7 +208,7 @@ Painel administrativo para gerenciar operações internas do WHAGO: usuários, p
 - Latência de API (p50/p95/p99)
 - Taxa de erro de requests
 - Uso de recursos (CPU/RAM/Disco)
-- Status de serviços (backend/baileys/redis/postgres)
+- Status de serviços (backend/waha/redis/postgres)
 
 ### 6.5 Logs
 - Filtrar por nível (info/warning/error)
@@ -638,6 +639,7 @@ CREATE TABLE admin_audit_logs (
 - [x] **Monitoramento de Containers WAHA Plus** ✅
 - [x] **Sistema de Pagamentos** ✅
 - [x] **Webhooks WAHA Plus** ✅
+- [x] **Camuflagem e Fingerprinting** ✅
 
 ### Fase 2:
 - [ ] Relatórios completos
@@ -658,4 +660,3 @@ CREATE TABLE admin_audit_logs (
 ---
 
 **FIM DO PRD ADMIN**
-

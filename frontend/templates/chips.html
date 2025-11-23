@@ -11,6 +11,7 @@
   <div class="flex items-center gap-3">
     <button data-test="add-chip" class="btn-primary">Adicionar chip</button>
     <button id="open-group-heatup" class="btn-secondary">🔥 Aquecer em grupo</button>
+    <button id="open-global-stats" class="btn-secondary text-blue-700 bg-blue-50 border-blue-200 hover:bg-blue-100">📊 Monitoramento</button>
     <button id="refresh-chips" class="btn-secondary">Atualizar lista</button>
   </div>
 </section>
@@ -192,4 +193,30 @@
   </div>
 </div>
 <div id="maturation-stats-backdrop" class="modal__backdrop hidden" aria-hidden="true"></div>
+
+<!-- Modal: Monitoramento Global de Aquecimento -->
+<div id="global-stats-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="global-stats-title">
+  <div class="modal__content" style="max-width: 900px;">
+    <div class="modal__header">
+      <div class="flex items-center gap-2">
+        <span class="text-2xl">🔥</span>
+        <div>
+          <h3 id="global-stats-title" class="modal__title">Monitoramento de Aquecimento Global</h3>
+          <p class="text-xs text-slate-500">Visão geral de todos os chips em processo de maturação</p>
+        </div>
+      </div>
+      <button type="button" id="global-stats-close" class="modal__close" aria-label="Fechar">✕</button>
+    </div>
+    
+    <div class="modal__body space-y-6" id="global-stats-content">
+      <p class="text-center text-slate-500 py-8">Carregando dados...</p>
+    </div>
+    
+    <div class="modal__footer">
+      <button type="button" class="btn-secondary" id="global-stats-refresh">🔄 Atualizar Dados</button>
+      <button type="button" class="btn-primary" id="global-stats-ok">Fechar</button>
+    </div>
+  </div>
+</div>
+<div id="global-stats-backdrop" class="modal__backdrop hidden" aria-hidden="true"></div>
 {% endblock %}

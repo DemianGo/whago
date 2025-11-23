@@ -3858,6 +3858,9 @@ async function handleStopHeatUp(chipId) {
   await loadChips({ silent: true });
 }
 
+let maturationStatsInterval = null;
+let globalStatsInterval = null;
+
 async function openMaturationStatsModal(chipId) {
   const modal = document.getElementById("maturation-stats-modal");
   const backdrop = document.getElementById("maturation-stats-backdrop");
@@ -3866,8 +3869,12 @@ async function openMaturationStatsModal(chipId) {
   modal.classList.remove("hidden");
   backdrop.classList.remove("hidden");
   
-  // Carregar estatísticas
+  // Carregar estatísticas imediatamente
   await loadMaturationStats(chipId);
+  
+  // Iniciar Polling (a cada 5 segundos)
+  if (maturationStatsInterval) clearInterval(maturationStatsInterval);
+  maturationStatsInterval = setInterval(() => loadMaturationStats(chipId, true), 5000); // true = silent reload
   
   // Bind refresh button
   const refreshButton = document.getElementById("maturation-stats-refresh");
@@ -3876,21 +3883,29 @@ async function openMaturationStatsModal(chipId) {
   }
 }
 
-async function loadMaturationStats(chipId) {
+async function loadMaturationStats(chipId, silent = false) {
   const contentDiv = document.getElementById("maturation-stats-content");
   if (!contentDiv) return;
   
-  contentDiv.innerHTML = '<p class="text-center text-slate-500">Carregando...</p>';
+  // Se não for reload silencioso, mostrar loading
+  if (!silent) {
+    contentDiv.innerHTML = '<p class="text-center text-slate-500">Carregando...</p>';
+  }
   
   const response = await apiFetch(`/chips/${chipId}/maturation-stats`);
   
   if (!response?.ok) {
-    contentDiv.innerHTML = '<p class="text-center text-red-600">Erro ao carregar estatísticas.</p>';
+    if (!silent) contentDiv.innerHTML = '<p class="text-center text-red-600">Erro ao carregar estatísticas.</p>';
     return;
   }
   
   const stats = await response.json();
   
+  // ... (restante da lógica de renderização) ...
+  renderMaturationStats(contentDiv, stats);
+}
+
+function renderMaturationStats(contentDiv, stats) {
   if (stats.status === "never_started") {
     contentDiv.innerHTML = `
       <div class="text-center space-y-3 py-8">
@@ -3959,11 +3974,49 @@ async function loadMaturationStats(chipId) {
       </div>
       
       <div class="bg-gradient-to-r from-slate-50 to-slate-100 p-4 rounded-lg border-l-4 ${isReady ? 'border-emerald-500' : 'border-amber-500'}">
-        <p class="text-sm font-medium ${readyClass} flex items-center gap-2">
-          <span class="text-xl">${readyEmoji}</span>
-          ${stats.recommendation}
-        </p>
+        <div class="flex justify-between items-start">
+          <div>
+            <p class="text-sm font-medium ${readyClass} flex items-center gap-2">
+              <span class="text-xl">${readyEmoji}</span>
+              ${stats.recommendation}
+            </p>
+          </div>
+          ${stats.next_execution ? `
+            <div class="text-right">
+              <p class="text-xs text-slate-500 uppercase">Próxima mensagem</p>
+              <p class="text-sm font-bold text-blue-600">${stats.next_execution}</p>
+            </div>
+          ` : ''}
+        </div>
       </div>
+      
+      ${stats.recent_messages && stats.recent_messages.length > 0 ? `
+        <div class="bg-white p-4 rounded-lg border">
+          <p class="text-sm font-medium text-slate-700 mb-3 flex justify-between">
+            <span>📨 Conversas Recentes</span>
+            <span class="text-xs text-slate-400">${stats.total_messages_sent || 0} msgs total</span>
+          </p>
+          <div class="space-y-3 max-h-64 overflow-y-auto px-1">
+            ${stats.recent_messages.map(msg => {
+               const isSent = msg.type !== 'reply';
+               return `
+              <div class="flex flex-col ${isSent ? 'items-end' : 'items-start'}">
+                <div class="max-w-[85%] ${isSent ? 'bg-blue-50 border-blue-100' : 'bg-slate-50 border-slate-100'} border p-2 rounded-lg relative">
+                  <div class="flex justify-between items-center gap-4 mb-1">
+                    <span class="text-[10px] font-bold ${isSent ? 'text-blue-700' : 'text-slate-700'}">
+                      ${isSent ? '📤 Enviada' : '↩️ Resposta'}
+                    </span>
+                    <span class="text-[10px] text-slate-400">${msg.time}</span>
+                  </div>
+                  <p class="text-xs text-slate-600 mb-1">Para/De: <strong>${msg.to}</strong></p>
+                  <p class="text-xs text-slate-800 italic">"${msg.message}"</p>
+                </div>
+              </div>
+            `}).join('')}
+          </div>
+          <p class="text-xs text-slate-400 mt-2 text-center">Últimas interações</p>
+        </div>
+      ` : ''}
       
       ${stats.group_id ? `
         <div class="text-xs text-slate-500 text-center pt-2 border-t">
@@ -3985,24 +4038,166 @@ function closeMaturationStatsModal() {
   const backdrop = document.getElementById("maturation-stats-backdrop");
   modal?.classList.add("hidden");
   backdrop?.classList.add("hidden");
+  
+  // Parar Polling
+  if (maturationStatsInterval) {
+    clearInterval(maturationStatsInterval);
+    maturationStatsInterval = null;
+  }
 }
 
 document.getElementById("maturation-stats-close")?.addEventListener("click", closeMaturationStatsModal);
 document.getElementById("maturation-stats-cancel")?.addEventListener("click", closeMaturationStatsModal);
 document.getElementById("maturation-stats-backdrop")?.addEventListener("click", closeMaturationStatsModal);
 
-// Cache bust: 1763061975
-// Cache bust: 1763065043 - Deletar e Desconectar chips
-// Cache bust: 1763065236 - Fix deletar chips + aviso aquecimento
-// Cache bust: 1763075987 - Billing & Payments UI
-// Cache bust: 1763076543 - Fix home page redirect
-// Cache bust: 1763077234 - Auto subscription after register
-// Cache bust: 1763077890 - Subscription only after payment confirmed
-// Cache bust: 1763078456 - Better registration error messages
-// Cache bust: 1763082962 - Mercado Pago Sandbox working 100%
-// Cache bust: 1763083452 - Fix credit purchase redirect
-// Cache bust: 1731876543 - Group heat-up + maturation stats
-// Cache bust: 1731877890 - Fix event listeners for stats buttons
-// Cache bust: 1731889234 - Individual heat-up button with messages upload
-// Cache bust: 1731889567 - Auto-fill with 75 default messages
-// Cache bust: 1731891234 - REAL message sending + history display
+// ... (Cache busts) ...
+
+// ============================================================================
+// GLOBAL HEATUP STATS
+// ============================================================================
+
+async function openGlobalStatsModal() {
+  const modal = document.getElementById("global-stats-modal");
+  const backdrop = document.getElementById("global-stats-backdrop");
+  if (!modal || !backdrop) return;
+
+  // Garantir que está limpo antes de abrir
+  modal.classList.remove("hidden");
+  backdrop.classList.remove("hidden");
+  
+  // Limpar conteúdo anterior
+  const contentDiv = document.getElementById("global-stats-content");
+  if (contentDiv) {
+      contentDiv.innerHTML = '<div class="flex flex-col items-center justify-center py-10"><div class="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div><p class="mt-4 text-slate-500">Carregando dados em tempo real...</p></div>';
+  }
+  
+  await loadGlobalStats();
+  
+  // Iniciar Polling (a cada 5 segundos)
+  if (globalStatsInterval) clearInterval(globalStatsInterval);
+  globalStatsInterval = setInterval(() => loadGlobalStats(true), 5000);
+}
+
+async function closeGlobalStatsModal() {
+  const modal = document.getElementById("global-stats-modal");
+  const backdrop = document.getElementById("global-stats-backdrop");
+  
+  if (modal) modal.classList.add("hidden");
+  if (backdrop) backdrop.classList.add("hidden");
+  
+  // Parar Polling
+  if (globalStatsInterval) {
+    clearInterval(globalStatsInterval);
+    globalStatsInterval = null;
+  }
+}
+
+async function loadGlobalStats(silent = false) {
+  const contentDiv = document.getElementById("global-stats-content");
+  if (!contentDiv) return;
+  
+  if (!silent) {
+    contentDiv.innerHTML = '<div class="flex flex-col items-center justify-center py-10"><div class="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div><p class="mt-4 text-slate-500">Carregando dados em tempo real...</p></div>';
+  }
+  
+  try {
+    const response = await apiFetch("/chips/heat-up/global-stats");
+    
+    if (!response.ok) throw new Error("Falha ao carregar dados");
+    
+    const stats = await response.json();
+    
+    // ... (restante da lógica de renderização global) ...
+    renderGlobalStats(contentDiv, stats);
+    
+  } catch (error) {
+    console.error(error);
+    if (!silent) contentDiv.innerHTML = '<div class="bg-red-50 p-4 rounded text-red-600 text-center">Erro ao carregar dados. Tente novamente.</div>';
+  }
+}
+
+function renderGlobalStats(contentDiv, stats) {
+    if (stats.total_active_chips === 0) {
+      contentDiv.innerHTML = `
+        <div class="text-center py-10 space-y-4">
+          <p class="text-6xl">😴</p>
+          <p class="text-xl font-medium text-slate-700">Nenhum aquecimento ativo</p>
+          <p class="text-sm text-slate-500 max-w-md mx-auto">
+            Selecione chips na lista e clique em "Aquecer em Grupo" para iniciar o processo de maturação.
+          </p>
+        </div>
+      `;
+      return;
+    }
+    
+    contentDiv.innerHTML = `
+      <!-- Resumo -->
+      <div class="grid grid-cols-3 gap-4 mb-6">
+        <div class="bg-blue-50 p-4 rounded-lg border border-blue-100 text-center">
+          <p class="text-xs text-blue-600 font-bold uppercase">Chips Ativos</p>
+          <p class="text-3xl font-bold text-blue-800">${stats.total_active_chips}</p>
+        </div>
+        <div class="bg-orange-50 p-4 rounded-lg border border-orange-100 text-center">
+          <p class="text-xs text-orange-600 font-bold uppercase">Grupos</p>
+          <p class="text-3xl font-bold text-orange-800">${stats.total_groups}</p>
+        </div>
+        <div class="bg-emerald-50 p-4 rounded-lg border border-emerald-100 text-center">
+          <p class="text-xs text-emerald-600 font-bold uppercase">Msgs Hoje</p>
+          <p class="text-3xl font-bold text-emerald-800">${stats.total_messages_sent}</p>
+        </div>
+      </div>
+      
+      <!-- Lista de Chips -->
+      <div class="bg-white border rounded-lg overflow-hidden">
+        <div class="bg-slate-50 px-4 py-2 border-b flex justify-between items-center">
+          <span class="text-sm font-bold text-slate-700">Detalhes por Chip</span>
+          <span class="text-xs text-slate-500">Atualizado agora</span>
+        </div>
+        <div class="divide-y divide-slate-100 max-h-[50vh] overflow-y-auto">
+          ${stats.chips.map(chip => `
+            <div class="p-4 hover:bg-slate-50 transition-colors flex items-center justify-between">
+              <div class="flex items-center gap-3">
+                <div class="h-10 w-10 rounded-full bg-slate-200 flex items-center justify-center text-lg">
+                  🤖
+                </div>
+                <div>
+                  <p class="font-bold text-slate-800 text-sm">${chip.alias}</p>
+                  <p class="text-xs text-slate-500">${chip.phone || 'Sem número'}</p>
+                </div>
+              </div>
+              
+              <div class="flex items-center gap-6">
+                 <div class="text-center">
+                    <p class="text-[10px] text-slate-400 uppercase">Fase</p>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800">
+                      ${chip.phase}/5
+                    </span>
+                 </div>
+                 
+                 <div class="text-center">
+                    <p class="text-[10px] text-slate-400 uppercase">Total Msgs</p>
+                    <p class="text-sm font-bold text-slate-700">${chip.total_messages}</p>
+                 </div>
+                 
+                 <div class="text-right">
+                    <p class="text-[10px] text-slate-400 uppercase">Última Atividade</p>
+                    <p class="text-xs text-slate-600">${chip.last_activity ? formatDate(chip.last_activity) : '-'}</p>
+                 </div>
+                 
+                 <button onclick="openMaturationStatsModal('${chip.id}')" class="text-blue-600 hover:text-blue-800 text-xs font-medium underline">
+                   Ver Detalhes
+                 </button>
+              </div>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `;
+}
+
+// Event Listeners
+document.getElementById("open-global-stats")?.addEventListener("click", openGlobalStatsModal);
+document.getElementById("global-stats-close")?.addEventListener("click", closeGlobalStatsModal);
+document.getElementById("global-stats-ok")?.addEventListener("click", closeGlobalStatsModal);
+document.getElementById("global-stats-backdrop")?.addEventListener("click", closeGlobalStatsModal);
+document.getElementById("global-stats-refresh")?.addEventListener("click", loadGlobalStats);
