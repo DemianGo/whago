@@ -54,10 +54,15 @@ celery_app.conf.update(
             "task": "execute_chip_maturation_cycle",
             "schedule": 60.0,  # A cada 1 minuto (60 execuções/hora)
         },
+        # Watchdog de Infraestrutura
+        "check-containers-health": {
+            "task": "check_containers_health",
+            "schedule": 60.0,  # A cada 1 minuto
+        },
     },
 )
 
-celery_app.autodiscover_tasks(packages=("tasks.campaign_tasks", "tasks.billing_tasks", "tasks.proxy_monitor_tasks", "tasks.cleanup_tasks", "tasks.chip_maturation_tasks"))
+celery_app.autodiscover_tasks(packages=("tasks.campaign_tasks", "tasks.billing_tasks", "tasks.proxy_monitor_tasks", "tasks.cleanup_tasks", "tasks.chip_maturation_tasks", "tasks.health_tasks"))
 
 
 __all__ = ("celery_app",)

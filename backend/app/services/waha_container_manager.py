@@ -151,7 +151,8 @@ class WahaContainerManager:
                     "WHATSAPP_NOWEB_STORE_MESSAGES": "false",   # Não armazenar mensagens na memória/banco interno
                     "WHATSAPP_FILES_LIFETIME": "0",             # Desabilitar download automático de mídia
                     "WAHA_LOG_LEVEL": "ERROR",                  # Logs mínimos (economia de I/O e CPU)
-                    "WHATSAPP_RECONNECT_INTERVAL": "5000",      # Intervalo de reconexão otimizado
+                    "WHATSAPP_RECONNECT_INTERVAL": "2000",      # Tentar reconectar a cada 2s (mais agressivo)
+                    "WHATSAPP_RECONNECT_MAX_ATTEMPTS": "100",   # Tentar muitas vezes antes de desistir
                     "WHATSAPP_NOWEB_MARK_ONLINE_ON_CONNECT": "false", # Controle manual de presença (humanização)
                 },
                 volumes={

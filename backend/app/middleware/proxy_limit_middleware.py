@@ -46,9 +46,13 @@ async def check_proxy_quota(user: User, session: AsyncSession) -> None:
             auto_commit=False,
         )
     
-    # Bloquear em 100%
+    # Bloquear em 100% APENAS se não tiver créditos (Pay-as-you-go)
     if gb_used >= limit_gb:
-        # Notificar
+        # Se tiver créditos positivos, permite continuar (será cobrado por uso excedente)
+        if user.credits > 0:
+            return
+
+        # Notificar bloqueio
         notifier = NotificationService(session)
         await notifier.create(
             user_id=user.id,

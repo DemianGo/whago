@@ -965,29 +965,27 @@ async function fetchAndDisplayQrCode(chipId) {
       qrImage.classList.remove("hidden");
       
       if (qrStatus) {
-        if (data.expires_at) {
-          const expiresAt = new Date(data.expires_at);
-          const now = new Date();
-          const secondsLeft = Math.floor((expiresAt - now) / 1000);
-          if (secondsLeft > 0) {
-            qrStatus.textContent = `QR Code expira em ${secondsLeft} segundos`;
-            qrStatus.className = "text-center text-sm text-slate-600";
-          } else {
-            qrStatus.textContent = "QR Code expirado. Gerando novo...";
-            qrStatus.className = "text-center text-sm text-orange-600";
-          }
-        } else {
           qrStatus.textContent = "Escaneie o QR Code acima com seu WhatsApp";
           qrStatus.className = "text-center text-sm text-slate-600";
-        }
       }
     } else {
       // No QR code yet
       if (qrLoading) qrLoading.classList.remove("hidden");
       qrImage.classList.add("hidden");
       if (qrStatus) {
-        qrStatus.textContent = "Aguardando QR Code...";
-        qrStatus.className = "text-center text-sm text-slate-600";
+        // Mostrar status real vindo do backend
+        const statusMsg = data.message || (data.status ? `Status: ${data.status}` : "Aguardando QR Code...");
+        qrStatus.textContent = statusMsg;
+        
+        if (data.status === "CONNECTED" || data.status === "WORKING") {
+             qrStatus.textContent = "✅ Conectado com sucesso!";
+             qrStatus.className = "text-center text-sm text-green-600 font-bold";
+             setTimeout(() => closeChipQrModal(), 2000);
+        } else if (data.status === "FAILED" || data.status === "STOPPED") {
+             qrStatus.className = "text-center text-sm text-red-600 font-bold";
+        } else {
+             qrStatus.className = "text-center text-sm text-slate-500 animate-pulse";
+        }
       }
     }
     

@@ -208,11 +208,29 @@ class WAHAClient:
             
             status = session_data.get("status", "UNKNOWN")
             
-            if status == "SCAN_QR_CODE":
+            # Auto-Recuperação: Se estiver parado ou falhou, tentar iniciar para destravar
+            if status in ["STOPPED", "FAILED"]:
+                try:
+                    logger.info(f"Sessão {session_id} está {status}. Enviando comando de START para recuperar...")
+                    await client.post(f"/api/sessions/{session_id}/start")
+                    return {
+                        "qr_code": None,
+                        "status": "STARTING",
+                        "message": "Reiniciando motor do WhatsApp... Aguarde o QR Code.",
+                        "session_id": session_id,
+                    }
+                except Exception as e:
+                    logger.warning(f"Falha ao tentar iniciar sessão {session_id}: {e}")
+
+            # Tentar obter QR Code se status for SCAN_QR_CODE ou STARTING (Otimista)
+            if status in ["SCAN_QR_CODE", "STARTING"]:
                 # ✅ WAHA Plus: endpoint de QR Code retorna PNG
                 try:
                     import base64
+                    # Tentar buscar a imagem do QR Code mesmo se estiver STARTING
                     qr_response = await client.get(f"/api/{session_id}/auth/qr")
+                    
+                    # Se der erro 400/404/500, vai cair no except
                     qr_response.raise_for_status()
                     
                     # Converter PNG para base64
@@ -220,7 +238,7 @@ class WAHAClient:
                     qr_base64 = base64.b64encode(qr_png_bytes).decode('utf-8')
                     qr_data_uri = f"data:image/png;base64,{qr_base64}"
                     
-                    logger.info(f"QR Code obtido com sucesso para sessão {session_id}")
+                    logger.info(f"QR Code obtido com sucesso para sessão {session_id} (Status: {status})")
                     
                     return {
                         "qr_code": qr_data_uri,
@@ -228,12 +246,21 @@ class WAHAClient:
                         "session_id": session_id,
                     }
                 except httpx.HTTPError as e:
+                    # Se falhar e for STARTING, é normal, pede para aguardar
+                    if status == "STARTING":
+                         return {
+                            "qr_code": None,
+                            "status": status,
+                            "message": "Iniciando motor do WhatsApp. Aguarde alguns segundos...",
+                            "session_id": session_id,
+                        }
+                        
                     logger.warning(f"Erro ao obter QR Code PNG: {e}")
                     return {
                         "qr_code": None,
                         "qr_available_in_logs": True,
                         "status": status,
-                        "message": "QR Code disponível nos logs do Docker",
+                        "message": "QR Code ainda não gerado ou disponível nos logs",
                         "session_id": session_id,
                     }
                     
@@ -245,6 +272,25 @@ class WAHAClient:
                     "session_id": session_id,
                     "phone": session_data.get("me", {}).get("id") if session_data.get("me") else None,
                 }
+            elif status == "STOPPED":
+                # 🔄 AUTO-HEAL: Se estiver parada, forçar início
+                try:
+                    logger.info(f"Sessão {session_id} está STOPPED. Tentando iniciar automaticamente...")
+                    await client.post(f"/api/sessions/{session_id}/start")
+                    return {
+                        "qr_code": None,
+                        "status": "STARTING",
+                        "message": "Sessão estava parada. Iniciando... Aguarde.",
+                        "session_id": session_id,
+                    }
+                except Exception as e:
+                    logger.error(f"Falha no Auto-Heal da sessão {session_id}: {e}")
+                    return {
+                        "qr_code": None,
+                        "status": status,
+                        "message": f"Sessão parada e falha ao iniciar: {str(e)}",
+                        "session_id": session_id,
+                    }
             else:
                 return {
                     "qr_code": None,
@@ -254,8 +300,22 @@ class WAHAClient:
                 }
                 
         except httpx.HTTPError as e:
-            logger.error(f"Erro ao obter QR Code: {e}")
-            raise Exception(f"Falha ao obter QR Code do WAHA: {e}") from e
+            logger.error(f"Erro ao obter QR Code (HTTPError): {e}")
+            # Se for timeout ou conexão recusada, retornar status especial para frontend não quebrar
+            return {
+                "qr_code": None,
+                "status": "UNAVAILABLE",
+                "message": "O serviço do WhatsApp está inicializando ou indisponível. Tentando novamente...",
+                "session_id": session_id,
+            }
+        except Exception as e:
+            logger.error(f"Erro genérico ao obter QR Code: {e}")
+            return {
+                "qr_code": None,
+                "status": "ERROR",
+                "message": f"Erro interno: {str(e)}",
+                "session_id": session_id,
+            }
 
     async def get_session_status(self, session_id: str) -> dict[str, Any]:
         """
