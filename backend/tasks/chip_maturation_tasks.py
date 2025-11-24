@@ -303,10 +303,35 @@ async def process_group_maturation(group_chips: list[Chip], session):
         logger.info(f"💬 Usando {len(available_messages)} mensagens padrão")
     
     # Calcular quantas mensagens enviar nesta execução
-    # Task roda a cada 3 min (20 execuções/hora), então envia msgs/hora dividido por 20
-    messages_to_send = max(1, messages_per_hour // 20)
+    # Task roda a cada 1 min (60 execuções/hora)
+    # messages_per_hour é a meta POR CHIP
     
-    logger.info(f"📨 Enviando {messages_to_send} mensagens nesta execução")
+    num_chips = len(group_chips)
+    total_messages_group_hour = messages_per_hour * num_chips
+    messages_per_minute_group = total_messages_group_hour / 60.0
+    
+    # Parte inteira garantida
+    messages_to_send = int(messages_per_minute_group)
+    
+    # Parte fracionária vira probabilidade de enviar +1
+    remainder = messages_per_minute_group - messages_to_send
+    if random.random() < remainder:
+        messages_to_send += 1
+    
+    # Garantir pelo menos 1 mensagem a cada 5 minutos (fallback de ociosidade)
+    if messages_to_send == 0:
+        last_exec = heat_up_data.get("last_execution")
+        if last_exec:
+            try:
+                last_time = datetime.fromisoformat(last_exec.replace("Z", "+00:00"))
+                # Se passou mais de 5 min sem nada, força 1
+                if (datetime.now(timezone.utc) - last_time).total_seconds() > 300:
+                    messages_to_send = 1
+                    logger.info("⏰ Forçando envio por inatividade > 5 min")
+            except Exception:
+                pass
+    
+    logger.info(f"📨 Enviando {messages_to_send} mensagens nesta execução (Meta Grupo: {total_messages_group_hour}/h)")
     
     # Buscar container WAHA Plus do usuário
     container_manager = WahaContainerManager()
