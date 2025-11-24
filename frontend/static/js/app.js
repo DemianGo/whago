@@ -879,6 +879,17 @@ async function handleChipFormSubmit(event) {
   submitButton?.removeAttribute("disabled");
 }
 
+async function openConnectModal(chipId) {
+  openChipModal();
+  const form = document.getElementById("chip-form");
+  if (form) form.classList.add("hidden");
+  
+  const modalTitle = document.querySelector("#chip-modal h3");
+  if (modalTitle) modalTitle.textContent = "Conectar WhatsApp";
+  
+  await showChipQrCode(chipId);
+}
+
 async function showChipQrCode(chipId) {
   console.log('[showChipQrCode] Iniciando para chip:', chipId);
   
@@ -1088,19 +1099,38 @@ async function loadChips(options = {}) {
   if (!table) return;
   table.innerHTML = "";
   chips.forEach((chip) => {
-    const statusLabel = formatChipStatus(chip.status);
-    const statusClass = getChipStatusClass(chip.status);
     const heatUpStatus = chip.extra_data?.heat_up?.status;
     const isHeatingUp = heatUpStatus === "in_progress";
     
+    let statusLabel = formatChipStatus(chip.status);
+    let statusClass = getChipStatusClass(chip.status);
+    
+    // Sobrescrever status visual se estiver em aquecimento, mas apenas se conectado
+    if (isHeatingUp) {
+      if (!["waiting_qr", "disconnected", "banned", "error"].includes(chip.status)) {
+        statusLabel = "Em Aquecimento";
+        statusClass = "inline-flex items-center rounded-full bg-sky-100 px-2.5 py-0.5 text-xs font-medium text-sky-800";
+      } else {
+        // Se estiver desconectado mas com heatup ativo
+        // Não mudamos o statusLabel principal (fica "Desconectado"), mas podemos adicionar um indicador extra no nome ou badge
+      }
+    }
+
     const row = document.createElement("tr");
     row.dataset.test = "chip-row";
     row.dataset.chipId = chip.id;
     row.dataset.alias = chip.alias;
+    
+    // Badge ao lado do nome
+    let nameBadge = "";
+    if (isHeatingUp && !["waiting_qr", "disconnected", "banned", "error"].includes(chip.status)) {
+      nameBadge = '<span class="ml-2 text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded">🔥 Aquecendo</span>';
+    }
+
     row.innerHTML = `
       <td class="py-2 font-medium text-slate-800">
         ${chip.alias}
-        ${isHeatingUp ? '<span class="ml-2 text-xs bg-orange-100 text-orange-700 px-2 py-1 rounded">🔥 Aquecendo</span>' : ''}
+        ${nameBadge}
       </td>
       <td class="py-2"><span data-test="chip-status" class="${statusClass}">${statusLabel}</span></td>
       <td class="py-2">${chip.health_score ?? "--"}</td>
@@ -1108,7 +1138,7 @@ async function loadChips(options = {}) {
       <td class="py-2">${formatDate(chip.last_activity_at)}</td>
       <td class="py-2 text-right">
         <div class="flex gap-2 justify-end">
-          ${isHeatingUp ? `
+          ${(isHeatingUp && !["waiting_qr", "disconnected", "banned", "error"].includes(chip.status)) ? `
             <button class="btn-xs bg-orange-100 text-orange-700 hover:bg-orange-200" type="button" data-action="view-stats" data-chip-id="${chip.id}">
               📊 Stats
             </button>
@@ -1125,6 +1155,10 @@ async function loadChips(options = {}) {
             <button class="btn-secondary btn-xs" type="button" data-action="disconnect" data-chip-id="${chip.id}">
               Desconectar
             </button>
+          ` : (chip.status === 'waiting_qr' || chip.status === 'disconnected') ? `
+             <button class="btn-primary btn-xs" type="button" data-action="connect" data-chip-id="${chip.id}">
+               🔌 Conectar
+             </button>
           ` : ''}
           <button class="btn-secondary btn-xs text-red-600 hover:bg-red-50" type="button" data-action="delete" data-chip-id="${chip.id}">
             Deletar
@@ -1139,6 +1173,14 @@ async function loadChips(options = {}) {
     if (heatUpButton) {
       heatUpButton.addEventListener("click", async () => {
         await openHeatUpModalForChip(chip.id);
+      });
+    }
+
+    // Connect button
+    const connectButton = row.querySelector("[data-action=\"connect\"]");
+    if (connectButton) {
+      connectButton.addEventListener("click", async () => {
+        await openConnectModal(chip.id);
       });
     }
 
@@ -3430,14 +3472,41 @@ async function handleCreditPurchase(event) {
     });
     
     if (!response?.ok) {
-      throw new Error("Erro ao gerar pagamento");
+      let errorMessage = "Erro ao gerar pagamento";
+      try {
+        const errorData = await response.json();
+        if (errorData.detail) errorMessage = errorData.detail;
+      } catch (e) {
+        // Ignorar
+      }
+      throw new Error(errorMessage);
     }
     
     const data = await response.json();
     
     feedbackEl.textContent = "Redirecionando para pagamento...";
     
-    // Redirect to payment URL
+    // Se for Mercado Pago e tivermos Public Key e Payment ID (Preference ID), usar SDK
+    if (paymentMethod === "mercadopago" && data.public_key && data.payment_id && window.MercadoPago) {
+      try {
+        const mp = new MercadoPago(data.public_key);
+        mp.checkout({
+          preference: {
+            id: data.payment_id
+          },
+          autoOpen: true
+        });
+        feedbackEl.textContent = "Aguardando pagamento...";
+        submitBtn.removeAttribute("disabled");
+        submitBtn.textContent = "Comprar Créditos";
+        return; // Não redirecionar via URL, o modal vai abrir
+      } catch (e) {
+        console.error("Erro ao abrir Mercado Pago SDK:", e);
+        // Fallback para redirect
+      }
+    }
+    
+    // Redirect to payment URL (Fallback ou outros gateways)
     if (data.payment_url) {
       window.location.href = data.payment_url;
     } else {

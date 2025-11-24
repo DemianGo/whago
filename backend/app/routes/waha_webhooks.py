@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..database import get_db
 from ..models.chip import Chip, ChipStatus
+from ..models.notification import Notification, NotificationType
 
 logger = logging.getLogger("whago.waha_webhooks")
 
@@ -73,11 +74,55 @@ async def receive_waha_webhook(
             # Mapear status WAHA → status WHAGO
             if waha_status == "SCAN_QR_CODE":
                 chip.status = ChipStatus.WAITING_QR
+                
+                # 🛑 SEGURANÇA: Pausar maturação se desconectar
+                chip.extra_data = chip.extra_data or {}
+                heat_up = chip.extra_data.get("heat_up", {})
+                if heat_up.get("status") == "in_progress":
+                    heat_up["status"] = "paused"
+                    chip.extra_data["heat_up"] = heat_up
+                    logger.warning(f"Chip {chip.alias} desconectou. Maturação PAUSADA.")
+                    
+                    # 🔔 Notificar usuário
+                    notification = Notification(
+                        user_id=chip.user_id,
+                        title="Chip Desconectado",
+                        message=f"O chip '{chip.alias}' desconectou durante o aquecimento. O processo foi pausado por segurança. Reconecte o chip para continuar.",
+                        type=NotificationType.WARNING,
+                        extra_data={"chip_id": str(chip.id), "action": "reconnect"}
+                    )
+                    db.add(notification)
+
             elif waha_status in ["WORKING", "CONNECTED"]:
                 chip.status = ChipStatus.CONNECTED
                 chip.phone_number = data.get("me", {}).get("id")
+                
+                # 🔄 Auto-retomada (Opcional: Se quiser retomar automaticamente ao reconectar)
+                # Por segurança, mantemos pausado até o usuário verificar, ou podemos retomar.
+                # O usuário pediu para parar se cair. Para retomar, ele clica em "Heatup" novamente?
+                # O código anterior que fizemos já retoma se estiver 'in_progress'. 
+                # Se mudamos para 'paused', ele NÃO retoma sozinho. Isso é mais seguro conforme pedido ("evitar bagunça").
+                
             elif waha_status in ["FAILED", "STOPPED"]:
                 chip.status = ChipStatus.DISCONNECTED
+                
+                # 🛑 SEGURANÇA: Pausar maturação se falhar
+                chip.extra_data = chip.extra_data or {}
+                heat_up = chip.extra_data.get("heat_up", {})
+                if heat_up.get("status") == "in_progress":
+                    heat_up["status"] = "paused"
+                    chip.extra_data["heat_up"] = heat_up
+                    logger.warning(f"Chip {chip.alias} falhou/parou. Maturação PAUSADA.")
+                    
+                    # 🔔 Notificar usuário
+                    notification = Notification(
+                        user_id=chip.user_id,
+                        title="Falha no Chip",
+                        message=f"O chip '{chip.alias}' parou de responder. O aquecimento foi pausado.",
+                        type=NotificationType.ERROR,
+                        extra_data={"chip_id": str(chip.id)}
+                    )
+                    db.add(notification)
             
             chip.extra_data = chip.extra_data or {}
             chip.extra_data["waha_status"] = waha_status

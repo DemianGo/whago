@@ -91,12 +91,23 @@ class ChipHeatUpService:
                 detail="Um ou mais chips não foram encontrados."
             )
         
-        # Verificar se todos estão conectados
-        disconnected = [chip.alias for chip in chips if chip.status != ChipStatus.CONNECTED]
+        # Verificar se todos estão conectados e operacionais
+        disconnected = []
+        for chip in chips:
+            # Verificar status do banco
+            if chip.status != ChipStatus.CONNECTED:
+                disconnected.append(f"{chip.alias} (Status: {chip.status})")
+                continue
+            
+            # Verificar status interno do WAHA (se disponível)
+            waha_status = chip.extra_data.get("waha_status") if chip.extra_data else None
+            if waha_status and waha_status not in ["WORKING", "CONNECTED"]:
+                disconnected.append(f"{chip.alias} (WAHA: {waha_status})")
+
         if disconnected:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Os seguintes chips não estão conectados: {', '.join(disconnected)}. Conecte todos antes de iniciar o aquecimento."
+                detail=f"Os seguintes chips não estão prontos para aquecimento: {', '.join(disconnected)}. Verifique a conexão no WhatsApp."
             )
         
         # Gerar ID do grupo

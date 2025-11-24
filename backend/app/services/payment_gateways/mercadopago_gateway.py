@@ -184,6 +184,8 @@ class MercadoPagoGateway(PaymentGateway):
                 "statement_descriptor": "WHAGO - Créditos",
             }
             
+            print(f"[MercadoPago] Creating preference with data: {preference_data}")
+            
             response = await client.post(
                 f"{self.BASE_URL}/checkout/preferences",
                 json=preference_data,
@@ -191,8 +193,14 @@ class MercadoPagoGateway(PaymentGateway):
                 timeout=30.0
             )
             
+            print(f"[MercadoPago] Response status: {response.status_code}, body: {response.text}")
+            
             if response.status_code not in [200, 201]:
-                raise Exception(f"Erro ao criar pagamento: {response.text}")
+                error_data = response.json() if response.text else {}
+                error_msg = error_data.get("message", response.text)
+                if "PA_UNAUTHORIZED_RESULT_FROM_POLICIES" in response.text:
+                    error_msg = "Pagamento rejeitado pelo Mercado Pago. Verifique se você não está tentando pagar para si mesmo (mesmo email da conta vendedora)."
+                raise Exception(f"Erro MP: {error_msg}")
             
             data = response.json()
             

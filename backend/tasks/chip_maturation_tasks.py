@@ -10,11 +10,11 @@ import random
 from datetime import datetime, timezone, timedelta
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from app.config import settings
-from app.models.chip import Chip, ChipStatus
+from app.models.chip import Chip, ChipStatus, ChipEvent, ChipEventType
 from app.models.user import User
 from app.services.waha_container_manager import WahaContainerManager
 from app.services.waha_client import WAHAClient
@@ -394,6 +394,22 @@ async def process_group_maturation(group_chips: list[Chip], session):
         
         if len(chips_ready) < 2:
             logger.warning(f"⚠️  Grupo tem apenas {len(chips_ready)} chip(s) prontos (WORKING). Aguardando próxima execução...")
+            
+            # Registrar evento de aviso para chips do grupo que não estão prontos
+            for chip in group_chips:
+                is_ready = any(c.id == chip.id for c in chips_ready)
+                if not is_ready:
+                    # Evitar spam de eventos: checar se já teve aviso recente (opcional, mas bom)
+                    # Por simplicidade, vamos registrar sempre que falhar o ciclo, o usuário verá no histórico
+                    event = ChipEvent(
+                        chip_id=chip.id,
+                        type=ChipEventType.WARNING,
+                        description="Aquecimento pausado: Chip desconectado ou sessão inválida. Reconecte para continuar.",
+                        created_at=datetime.now(timezone.utc)
+                    )
+                    session.add(event)
+            
+            await session.commit()
             break
         
         sender = random.choice(chips_ready)
@@ -720,9 +736,14 @@ async def _execute_maturation_cycle():
     
     async with async_session_maker() as session:
         try:
-            # Buscar todos os chips em aquecimento
+            # Buscar todos os chips em aquecimento ou com processo em andamento
             result = await session.execute(
-                select(Chip).where(Chip.status == ChipStatus.MATURING)
+                select(Chip).where(
+                    or_(
+                        Chip.status == ChipStatus.MATURING,
+                        Chip.extra_data["heat_up"]["status"].astext == "in_progress"
+                    )
+                )
             )
             chips = result.scalars().all()
             

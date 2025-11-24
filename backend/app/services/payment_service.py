@@ -277,6 +277,7 @@ class PaymentService:
             "status": payment_data["status"],
             "amount": float(amount),
             "credits": credits,
+            "public_key": gateway_config.get("public_key"), # Retornar chave pública para frontend
         }
     
     async def process_webhook(

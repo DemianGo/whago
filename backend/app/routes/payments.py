@@ -161,6 +161,9 @@ async def purchase_credits(
         
         return result
     except Exception as e:
+        import traceback
+        print(f"ERRO CRÍTICO NO PAGAMENTO: {str(e)}")
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Erro ao processar compra: {str(e)}"
