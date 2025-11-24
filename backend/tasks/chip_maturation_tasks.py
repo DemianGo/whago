@@ -7,7 +7,6 @@ interna de uma equipe/empresa com comportamento humano (typing, delays, etc).
 
 import asyncio
 import random
-from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from uuid import UUID
 
@@ -303,35 +302,10 @@ async def process_group_maturation(group_chips: list[Chip], session):
         logger.info(f"💬 Usando {len(available_messages)} mensagens padrão")
     
     # Calcular quantas mensagens enviar nesta execução
-    # Task roda a cada 1 min (60 execuções/hora)
-    # messages_per_hour é a meta POR CHIP
+    # Task roda a cada 3 min (20 execuções/hora), então envia msgs/hora dividido por 20
+    messages_to_send = max(1, messages_per_hour // 20)
     
-    num_chips = len(group_chips)
-    total_messages_group_hour = messages_per_hour * num_chips
-    messages_per_minute_group = total_messages_group_hour / 60.0
-    
-    # Parte inteira garantida
-    messages_to_send = int(messages_per_minute_group)
-    
-    # Parte fracionária vira probabilidade de enviar +1
-    remainder = messages_per_minute_group - messages_to_send
-    if random.random() < remainder:
-        messages_to_send += 1
-    
-    # Garantir pelo menos 1 mensagem a cada 5 minutos (fallback de ociosidade)
-    if messages_to_send == 0:
-        last_exec = heat_up_data.get("last_execution")
-        if last_exec:
-            try:
-                last_time = datetime.fromisoformat(last_exec.replace("Z", "+00:00"))
-                # Se passou mais de 5 min sem nada, força 1
-                if (datetime.now(timezone.utc) - last_time).total_seconds() > 300:
-                    messages_to_send = 1
-                    logger.info("⏰ Forçando envio por inatividade > 5 min")
-            except Exception:
-                pass
-    
-    logger.info(f"📨 Enviando {messages_to_send} mensagens nesta execução (Meta Grupo: {total_messages_group_hour}/h)")
+    logger.info(f"📨 Enviando {messages_to_send} mensagens nesta execução")
     
     # Buscar container WAHA Plus do usuário
     container_manager = WahaContainerManager()
@@ -409,7 +383,6 @@ async def process_group_maturation(group_chips: list[Chip], session):
     
     # Enviar mensagens
     messages_sent_count = 0
-    individual_sent_count = defaultdict(int)
     
     for i in range(messages_to_send):
         # Escolher remetente e destinatário aleatórios (diferentes)
@@ -442,7 +415,6 @@ async def process_group_maturation(group_chips: list[Chip], session):
         
         if success:
             messages_sent_count += 1
-            individual_sent_count[sender.id] += 1
             logger.info(f"   ✅ Enviada com sucesso!")
             
             # Salvar no histórico do sender
@@ -481,7 +453,6 @@ async def process_group_maturation(group_chips: list[Chip], session):
             
             if reply_success:
                 messages_sent_count += 1
-                individual_sent_count[receiver.id] += 1
                 logger.info(f"   ✅ Resposta enviada com sucesso!")
                 
                 # Salvar no histórico do receiver (que agora enviou)
@@ -522,7 +493,7 @@ async def process_group_maturation(group_chips: list[Chip], session):
             logger.info(f"   ⏳ Aguardando {interval}s...")
             await asyncio.sleep(interval)
     
-    logger.info(f"✅ Total enviado no grupo: {messages_sent_count} mensagens")
+    logger.info(f"✅ Total enviado: {messages_sent_count}/{messages_to_send} mensagens")
     
     # Atualizar progresso de TODOS os chips do grupo
     phase_started_at = heat_up_data.get("phase_started_at")
@@ -573,21 +544,7 @@ async def process_group_maturation(group_chips: list[Chip], session):
             chip.extra_data["heat_up"]["current_phase"] = new_phase
             chip.extra_data["heat_up"]["phase_started_at"] = new_phase_started_at
             chip.extra_data["heat_up"]["last_execution"] = datetime.now(timezone.utc).isoformat()
-            
-            # Contagem individual desta execução
-            sent_now = individual_sent_count.get(chip.id, 0)
-            
-            # Atualizar Total Global
-            chip.extra_data["heat_up"]["total_messages_sent"] = \
-                chip.extra_data["heat_up"].get("total_messages_sent", 0) + sent_now
-            
-            # Atualizar Total da Fase
-            # Se mudou de fase, reseta. Se não, acumula.
-            if new_phase != current_phase:
-                 chip.extra_data["heat_up"]["messages_sent_in_phase"] = 0
-            else:
-                 chip.extra_data["heat_up"]["messages_sent_in_phase"] = \
-                    chip.extra_data["heat_up"].get("messages_sent_in_phase", 0) + sent_now
+            chip.extra_data["heat_up"]["total_messages_sent"] = chip.extra_data["heat_up"].get("total_messages_sent", 0) + messages_sent_count
             
             from sqlalchemy.orm.attributes import flag_modified
             flag_modified(chip, "extra_data")
@@ -764,21 +721,12 @@ async def _execute_maturation_cycle():
     async with async_session_maker() as session:
         try:
             # Buscar todos os chips em aquecimento
-            # Correção: Busca chips que estão em MATURING OU que tenham heat_up.status == 'in_progress'
-            # Isso garante que chips reconectados (CONNECTED) continuem aquecendo
-            from sqlalchemy import or_, func
-            
             result = await session.execute(
-                select(Chip).where(
-                    or_(
-                        Chip.status == ChipStatus.MATURING,
-                        func.jsonb_extract_path_text(Chip.extra_data, 'heat_up', 'status') == 'in_progress'
-                    )
-                )
+                select(Chip).where(Chip.status == ChipStatus.MATURING)
             )
             chips = result.scalars().all()
             
-            logger.info(f"📊 Encontrados {len(chips)} chips para aquecimento")
+            logger.info(f"📊 Encontrados {len(chips)} chips em MATURING")
             
             if len(chips) == 0:
                 logger.info("⚠️  Nenhum chip em aquecimento no momento")

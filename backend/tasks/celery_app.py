@@ -37,8 +37,9 @@ celery_app.conf.update(
             "task": "billing.process_subscription_cycle",
             "schedule": 3600.0,
         },
-        "monitor-proxy-usage": {
-            "task": "monitor_proxy_usage",
+        # Monitoramento e Cobrança Unificados (Real-time)
+        "calculate-realtime-costs": {
+            "task": "billing.calculate_realtime_costs",
             "schedule": 300.0,  # A cada 5 minutos
         },
         "health-check-proxies": {

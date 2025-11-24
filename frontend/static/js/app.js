@@ -2442,10 +2442,18 @@ function renderCampaignChips(chips, chipsInUse = new Set()) {
     return;
   }
   
-  // Contar chips disponíveis (conectados E não em uso)
+  // Verificar se chip está em maturação
+  const isMaturing = (chip) => {
+    if ((chip.status || "").toLowerCase() === "maturing") return true;
+    if (chip.extra_data?.heat_up?.status === "in_progress") return true;
+    return false;
+  };
+  
+  // Contar chips disponíveis (conectados E não em uso E não em maturação)
   const availableChips = chips.filter(c => 
     (c.status || "").toLowerCase() === "connected" && 
-    !chipsInUse.has(c.id)
+    !chipsInUse.has(c.id) &&
+    !isMaturing(c)
   );
   
   // Mostrar aviso se não houver chips disponíveis
@@ -2455,7 +2463,9 @@ function renderCampaignChips(chips, chipsInUse = new Set()) {
     warning.innerHTML = `
       <p class="text-sm text-yellow-800">
         ⚠️ <strong>Nenhum chip disponível!</strong> 
-        ${chips.some(c => (c.status || "").toLowerCase() === "connected") 
+        ${chips.some(isMaturing)
+          ? "Seus chips estão em processo de aquecimento (maturação). Pare o aquecimento para usá-los."
+          : chips.some(c => (c.status || "").toLowerCase() === "connected") 
           ? "Todos os chips conectados estão sendo usados por outras campanhas." 
           : "Conecte pelo menos um chip antes de iniciar a campanha."}
       </p>
@@ -2470,22 +2480,27 @@ function renderCampaignChips(chips, chipsInUse = new Set()) {
     const card = document.createElement("label");
     const isConnected = (chip.status || "").toLowerCase() === "connected";
     const isInUse = chipsInUse.has(chip.id);
-    const disabled = !isConnected || isInUse;
+    const maturing = isMaturing(chip);
+    
+    // Desabilitado se: Não conectado OU Em uso OU Em Maturação
+    const disabled = !isConnected || isInUse || maturing;
     const isSelected = selectedChipId === chip.id;
     
-    // Se está desconectado ou em uso e estava selecionado, remover da seleção
-    if (disabled && isSelected && isInUse) {
+    // Se está desabilitado e estava selecionado, remover da seleção
+    if (disabled && isSelected) {
       campaignState.selectedChips.clear();
     }
     
     let statusLabel = "";
-    if (!isConnected) {
+    if (maturing) {
+      statusLabel = '<span class="text-xs text-amber-600 ml-2 font-bold">🔥 Em Aquecimento</span>';
+    } else if (!isConnected) {
       statusLabel = '<span class="text-xs text-red-600 ml-2">(Desconectado)</span>';
     } else if (isInUse) {
       statusLabel = '<span class="text-xs text-orange-600 ml-2">(Em uso por outra campanha)</span>';
     }
     
-    card.className = `card space-y-2 ${disabled ? "opacity-40 cursor-not-allowed" : "cursor-pointer hover:bg-slate-50"}`;
+    card.className = `card space-y-2 ${disabled ? "opacity-50 cursor-not-allowed bg-slate-50" : "cursor-pointer hover:bg-slate-50"}`;
     card.innerHTML = `
       <div class="flex items-center justify-between gap-3">
         <div class="flex-1">

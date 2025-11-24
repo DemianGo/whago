@@ -608,15 +608,38 @@ class CampaignService:
 
         # Validar chips conectados TANTO ao iniciar QUANTO ao retomar
         from app.models.chip import Chip, ChipStatus
-        result_connected = await self.session.execute(
-            select(func.count(Chip.id)).where(
+        result_chips = await self.session.execute(
+            select(Chip).where(
                 Chip.id.in_(chip_ids),
-                Chip.status == ChipStatus.CONNECTED
+                Chip.user_id == user.id
             )
         )
-        connected_chips = result_connected.scalar_one()
+        campaign_chips = result_chips.scalars().all()
         
-        if connected_chips == 0:
+        # Validar conexão e MATURAÇÃO
+        connected_count = 0
+        maturing_aliases = []
+        
+        for chip in campaign_chips:
+            if chip.status == ChipStatus.CONNECTED:
+                connected_count += 1
+            
+            # Verificar maturação
+            heat_status = ""
+            if chip.extra_data and "heat_up" in chip.extra_data:
+                heat_status = chip.extra_data["heat_up"].get("status", "")
+                
+            if chip.status == ChipStatus.MATURING or heat_status == "in_progress":
+                maturing_aliases.append(chip.alias)
+
+        if maturing_aliases:
+            chips_str = ", ".join(maturing_aliases)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Impossível iniciar: Os chips {chips_str} entraram em processo de maturação. Remova-os da campanha ou pare o aquecimento.",
+            )
+        
+        if connected_count == 0:
             if campaign.status == CampaignStatus.PAUSED:
                 raise HTTPException(
                     status_code=status.HTTP_400_BAD_REQUEST,
@@ -1201,16 +1224,42 @@ class CampaignService:
         chip_ids = list({chip_id for chip_id in chip_ids})
         if not chip_ids:
             return
+            
+        # 1. Validar propriedade dos chips
+        from app.models.chip import Chip, ChipStatus
         result = await self.session.execute(
-            select(func.count(Chip.id)).where(
+            select(Chip).where(
                 Chip.user_id == user.id,
                 Chip.id.in_(chip_ids),
             )
         )
-        if result.scalar_one() != len(chip_ids):
+        chips = result.scalars().all()
+        
+        if len(chips) != len(chip_ids):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Não foi possível validar os chips selecionados.",
+                detail="Não foi possível validar todos os chips selecionados. Verifique se eles pertencem à sua conta.",
+            )
+            
+        # 2. Validar status (não pode estar em MATURING)
+        maturing_chips = []
+        for chip in chips:
+            # Checar status principal e flag de heatup
+            is_maturing = chip.status == ChipStatus.MATURING
+            
+            # Checar extra_data também por segurança
+            heat_status = ""
+            if chip.extra_data and "heat_up" in chip.extra_data:
+                heat_status = chip.extra_data["heat_up"].get("status", "")
+            
+            if is_maturing or heat_status == "in_progress":
+                maturing_chips.append(chip.alias)
+        
+        if maturing_chips:
+            chips_str = ", ".join(maturing_chips)
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Os seguintes chips estão em processo de maturação (aquecimento) e não podem ser usados em campanhas: {chips_str}. Pare a maturação antes de usá-los.",
             )
 
     def _normalize_phone(self, number: str) -> str | None:

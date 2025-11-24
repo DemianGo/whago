@@ -144,7 +144,15 @@ class WahaContainerManager:
                     "WHATSAPP_SESSIONS_POSTGRESQL_URL": self.POSTGRES_URL_TEMPLATE,
                     "WHATSAPP_HOOK_URL": self.WEBHOOK_URL_TEMPLATE,
                     "WHATSAPP_HOOK_EVENTS": "*",
-                    "WAHA_PRINT_QR": "false",  # Não imprimir QR no console
+                    "WAHA_PRINT_QR": "false",
+
+                    # OTIMIZAÇÕES DE RECURSOS (NOWEB - ECONOMIA EXTREMA)
+                    "WHATSAPP_DEFAULT_ENGINE": "noweb",         # Engine leve (Baileys) ~40MB RAM
+                    "WHATSAPP_NOWEB_STORE_MESSAGES": "false",   # Não armazenar mensagens na memória/banco interno
+                    "WHATSAPP_FILES_LIFETIME": "0",             # Desabilitar download automático de mídia
+                    "WAHA_LOG_LEVEL": "ERROR",                  # Logs mínimos (economia de I/O e CPU)
+                    "WHATSAPP_RECONNECT_INTERVAL": "5000",      # Intervalo de reconexão otimizado
+                    "WHATSAPP_NOWEB_MARK_ONLINE_ON_CONNECT": "false", # Controle manual de presença (humanização)
                 },
                 volumes={
                     volume_name: {"bind": "/app/.waha", "mode": "rw"}
@@ -456,11 +464,18 @@ class WahaContainerManager:
             memory_limit = stats["memory_stats"]["limit"]
             memory_percent = (memory_usage / memory_limit) * 100.0
             
+            # Calcular uso de rede (I/O)
+            networks = stats.get("networks", {})
+            rx_bytes = sum(n.get("rx_bytes", 0) for n in networks.values())
+            tx_bytes = sum(n.get("tx_bytes", 0) for n in networks.values())
+            
             return {
                 "cpu_percent": round(cpu_percent, 2),
                 "memory_usage_mb": round(memory_usage / 1024 / 1024, 2),
                 "memory_limit_mb": round(memory_limit / 1024 / 1024, 2),
                 "memory_percent": round(memory_percent, 2),
+                "network_rx_bytes": rx_bytes,
+                "network_tx_bytes": tx_bytes,
             }
             
         except (NotFound, DockerException) as e:
