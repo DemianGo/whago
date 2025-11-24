@@ -3858,9 +3858,6 @@ async function handleStopHeatUp(chipId) {
   await loadChips({ silent: true });
 }
 
-let maturationStatsInterval = null;
-let globalStatsInterval = null;
-
 async function openMaturationStatsModal(chipId) {
   const modal = document.getElementById("maturation-stats-modal");
   const backdrop = document.getElementById("maturation-stats-backdrop");
@@ -3869,12 +3866,8 @@ async function openMaturationStatsModal(chipId) {
   modal.classList.remove("hidden");
   backdrop.classList.remove("hidden");
   
-  // Carregar estatísticas imediatamente
+  // Carregar estatísticas
   await loadMaturationStats(chipId);
-  
-  // Iniciar Polling (a cada 5 segundos)
-  if (maturationStatsInterval) clearInterval(maturationStatsInterval);
-  maturationStatsInterval = setInterval(() => loadMaturationStats(chipId, true), 5000); // true = silent reload
   
   // Bind refresh button
   const refreshButton = document.getElementById("maturation-stats-refresh");
@@ -3883,29 +3876,21 @@ async function openMaturationStatsModal(chipId) {
   }
 }
 
-async function loadMaturationStats(chipId, silent = false) {
+async function loadMaturationStats(chipId) {
   const contentDiv = document.getElementById("maturation-stats-content");
   if (!contentDiv) return;
   
-  // Se não for reload silencioso, mostrar loading
-  if (!silent) {
-    contentDiv.innerHTML = '<p class="text-center text-slate-500">Carregando...</p>';
-  }
+  contentDiv.innerHTML = '<p class="text-center text-slate-500">Carregando...</p>';
   
   const response = await apiFetch(`/chips/${chipId}/maturation-stats`);
   
   if (!response?.ok) {
-    if (!silent) contentDiv.innerHTML = '<p class="text-center text-red-600">Erro ao carregar estatísticas.</p>';
+    contentDiv.innerHTML = '<p class="text-center text-red-600">Erro ao carregar estatísticas.</p>';
     return;
   }
   
   const stats = await response.json();
   
-  // ... (restante da lógica de renderização) ...
-  renderMaturationStats(contentDiv, stats);
-}
-
-function renderMaturationStats(contentDiv, stats) {
   if (stats.status === "never_started") {
     contentDiv.innerHTML = `
       <div class="text-center space-y-3 py-8">
@@ -4038,19 +4023,29 @@ function closeMaturationStatsModal() {
   const backdrop = document.getElementById("maturation-stats-backdrop");
   modal?.classList.add("hidden");
   backdrop?.classList.add("hidden");
-  
-  // Parar Polling
-  if (maturationStatsInterval) {
-    clearInterval(maturationStatsInterval);
-    maturationStatsInterval = null;
-  }
 }
 
 document.getElementById("maturation-stats-close")?.addEventListener("click", closeMaturationStatsModal);
 document.getElementById("maturation-stats-cancel")?.addEventListener("click", closeMaturationStatsModal);
 document.getElementById("maturation-stats-backdrop")?.addEventListener("click", closeMaturationStatsModal);
 
-// ... (Cache busts) ...
+// Cache bust: 1763061975
+// Cache bust: 1763065043 - Deletar e Desconectar chips
+// Cache bust: 1763065236 - Fix deletar chips + aviso aquecimento
+// Cache bust: 1763075987 - Billing & Payments UI
+// Cache bust: 1763076543 - Fix home page redirect
+// Cache bust: 1763077234 - Auto subscription after register
+// Cache bust: 1763077890 - Subscription only after payment confirmed
+// Cache bust: 1763078456 - Better registration error messages
+// Cache bust: 1763082962 - Mercado Pago Sandbox working 100%
+// Cache bust: 1763083452 - Fix credit purchase redirect
+// Cache bust: 1731876543 - Group heat-up + maturation stats
+// Cache bust: 1731877890 - Fix event listeners for stats buttons
+// Cache bust: 1731889234 - Individual heat-up button with messages upload
+// Cache bust: 1731889567 - Auto-fill with 75 default messages
+// Cache bust: 1731891234 - REAL message sending + history display
+// Cache bust: 1732023456 - 5 phases maturation system fully operational
+// Cache bust: 1732024567 - Fixed @c.us suffix for real message sending
 
 // ============================================================================
 // GLOBAL HEATUP STATS
@@ -4065,17 +4060,13 @@ async function openGlobalStatsModal() {
   modal.classList.remove("hidden");
   backdrop.classList.remove("hidden");
   
-  // Limpar conteúdo anterior
+  // Limpar conteúdo anterior para evitar confusão visual
   const contentDiv = document.getElementById("global-stats-content");
   if (contentDiv) {
       contentDiv.innerHTML = '<div class="flex flex-col items-center justify-center py-10"><div class="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div><p class="mt-4 text-slate-500">Carregando dados em tempo real...</p></div>';
   }
   
   await loadGlobalStats();
-  
-  // Iniciar Polling (a cada 5 segundos)
-  if (globalStatsInterval) clearInterval(globalStatsInterval);
-  globalStatsInterval = setInterval(() => loadGlobalStats(true), 5000);
 }
 
 async function closeGlobalStatsModal() {
@@ -4084,21 +4075,13 @@ async function closeGlobalStatsModal() {
   
   if (modal) modal.classList.add("hidden");
   if (backdrop) backdrop.classList.add("hidden");
-  
-  // Parar Polling
-  if (globalStatsInterval) {
-    clearInterval(globalStatsInterval);
-    globalStatsInterval = null;
-  }
 }
 
-async function loadGlobalStats(silent = false) {
+async function loadGlobalStats() {
   const contentDiv = document.getElementById("global-stats-content");
   if (!contentDiv) return;
   
-  if (!silent) {
-    contentDiv.innerHTML = '<div class="flex flex-col items-center justify-center py-10"><div class="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div><p class="mt-4 text-slate-500">Carregando dados em tempo real...</p></div>';
-  }
+  contentDiv.innerHTML = '<div class="flex flex-col items-center justify-center py-10"><div class="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600"></div><p class="mt-4 text-slate-500">Carregando dados em tempo real...</p></div>';
   
   try {
     const response = await apiFetch("/chips/heat-up/global-stats");
@@ -4107,16 +4090,6 @@ async function loadGlobalStats(silent = false) {
     
     const stats = await response.json();
     
-    // ... (restante da lógica de renderização global) ...
-    renderGlobalStats(contentDiv, stats);
-    
-  } catch (error) {
-    console.error(error);
-    if (!silent) contentDiv.innerHTML = '<div class="bg-red-50 p-4 rounded text-red-600 text-center">Erro ao carregar dados. Tente novamente.</div>';
-  }
-}
-
-function renderGlobalStats(contentDiv, stats) {
     if (stats.total_active_chips === 0) {
       contentDiv.innerHTML = `
         <div class="text-center py-10 space-y-4">
@@ -4193,6 +4166,11 @@ function renderGlobalStats(contentDiv, stats) {
         </div>
       </div>
     `;
+    
+  } catch (error) {
+    console.error(error);
+    contentDiv.innerHTML = '<div class="bg-red-50 p-4 rounded text-red-600 text-center">Erro ao carregar dados. Tente novamente.</div>';
+  }
 }
 
 // Event Listeners

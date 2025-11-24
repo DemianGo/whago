@@ -7,6 +7,7 @@ interna de uma equipe/empresa com comportamento humano (typing, delays, etc).
 
 import asyncio
 import random
+from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 from uuid import UUID
 
@@ -383,6 +384,7 @@ async def process_group_maturation(group_chips: list[Chip], session):
     
     # Enviar mensagens
     messages_sent_count = 0
+    individual_sent_count = defaultdict(int)
     
     for i in range(messages_to_send):
         # Escolher remetente e destinatário aleatórios (diferentes)
@@ -415,6 +417,7 @@ async def process_group_maturation(group_chips: list[Chip], session):
         
         if success:
             messages_sent_count += 1
+            individual_sent_count[sender.id] += 1
             logger.info(f"   ✅ Enviada com sucesso!")
             
             # Salvar no histórico do sender
@@ -453,6 +456,7 @@ async def process_group_maturation(group_chips: list[Chip], session):
             
             if reply_success:
                 messages_sent_count += 1
+                individual_sent_count[receiver.id] += 1
                 logger.info(f"   ✅ Resposta enviada com sucesso!")
                 
                 # Salvar no histórico do receiver (que agora enviou)
@@ -493,7 +497,7 @@ async def process_group_maturation(group_chips: list[Chip], session):
             logger.info(f"   ⏳ Aguardando {interval}s...")
             await asyncio.sleep(interval)
     
-    logger.info(f"✅ Total enviado: {messages_sent_count}/{messages_to_send} mensagens")
+    logger.info(f"✅ Total enviado no grupo: {messages_sent_count} mensagens")
     
     # Atualizar progresso de TODOS os chips do grupo
     phase_started_at = heat_up_data.get("phase_started_at")
@@ -544,7 +548,21 @@ async def process_group_maturation(group_chips: list[Chip], session):
             chip.extra_data["heat_up"]["current_phase"] = new_phase
             chip.extra_data["heat_up"]["phase_started_at"] = new_phase_started_at
             chip.extra_data["heat_up"]["last_execution"] = datetime.now(timezone.utc).isoformat()
-            chip.extra_data["heat_up"]["total_messages_sent"] = chip.extra_data["heat_up"].get("total_messages_sent", 0) + messages_sent_count
+            
+            # Contagem individual desta execução
+            sent_now = individual_sent_count.get(chip.id, 0)
+            
+            # Atualizar Total Global
+            chip.extra_data["heat_up"]["total_messages_sent"] = \
+                chip.extra_data["heat_up"].get("total_messages_sent", 0) + sent_now
+            
+            # Atualizar Total da Fase
+            # Se mudou de fase, reseta. Se não, acumula.
+            if new_phase != current_phase:
+                 chip.extra_data["heat_up"]["messages_sent_in_phase"] = 0
+            else:
+                 chip.extra_data["heat_up"]["messages_sent_in_phase"] = \
+                    chip.extra_data["heat_up"].get("messages_sent_in_phase", 0) + sent_now
             
             from sqlalchemy.orm.attributes import flag_modified
             flag_modified(chip, "extra_data")
@@ -721,12 +739,21 @@ async def _execute_maturation_cycle():
     async with async_session_maker() as session:
         try:
             # Buscar todos os chips em aquecimento
+            # Correção: Busca chips que estão em MATURING OU que tenham heat_up.status == 'in_progress'
+            # Isso garante que chips reconectados (CONNECTED) continuem aquecendo
+            from sqlalchemy import or_, func
+            
             result = await session.execute(
-                select(Chip).where(Chip.status == ChipStatus.MATURING)
+                select(Chip).where(
+                    or_(
+                        Chip.status == ChipStatus.MATURING,
+                        func.jsonb_extract_path_text(Chip.extra_data, 'heat_up', 'status') == 'in_progress'
+                    )
+                )
             )
             chips = result.scalars().all()
             
-            logger.info(f"📊 Encontrados {len(chips)} chips em MATURING")
+            logger.info(f"📊 Encontrados {len(chips)} chips para aquecimento")
             
             if len(chips) == 0:
                 logger.info("⚠️  Nenhum chip em aquecimento no momento")

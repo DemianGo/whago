@@ -402,6 +402,7 @@ Proteger IPs dos chips WhatsApp usando proxies residenciais para evitar baniment
   - **Velocidade Humana:** Simula 30-50 WPM (2.5-4.5 chars/s).
   - **Hesitação:** Simula pausas para pensar/ler no meio da digitação.
   - **Delays Aleatórios:** Pausas variáveis entre leitura e envio.
+  - **Ping-Pong Conversacional:** Respostas automáticas entre chips do mesmo grupo para garantir interação real e bilateral, com contagem precisa de mensagens enviadas por cada chip.
 
 **Objetivo:**
 Simular comportamento humano natural em chips novos para evitar banimentos precoces, aquecendo gradualmente o número antes de uso em massa.
