@@ -57,6 +57,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # Armazenamento de mídia
+    media_upload_dir: str = "media_storage"
     media_root: str = "/app/storage"
     media_base_url: str = "/media"
     media_max_file_size_mb: int = 10
