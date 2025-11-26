@@ -50,15 +50,20 @@ async def _cleanup_zombie_resources_async():
             
             # 1. Container sem user_id (Órfão total)
             if not user_id:
-                logger.warning(f"🗑️ [GC] Removendo container órfão (sem ID): {container_name}")
-                try:
-                    # Extrair ID do nome se possível para limpar volumes
-                    # waha_plus_user_UUID
-                    derived_id = container_name.replace("waha_plus_user_", "") if container_name else "unknown"
-                    await manager.delete_user_container(derived_id)
-                except Exception as e:
-                    logger.error(f"Erro ao remover órfão {container_name}: {e}")
-                continue
+                # Tentar extrair ID do nome antes de considerar órfão
+                if container_name and container_name.startswith("waha_plus_user_"):
+                    potential_user_id = container_name.replace("waha_plus_user_", "")
+                    logger.info(f"⚠️ [GC] Container {container_name} sem label de user_id. Tentando recuperar pelo nome: {potential_user_id}")
+                    user_id = potential_user_id
+                    # Se recuperou o ID, segue para validação de usuário (passo 2) em vez de deletar
+                else:
+                    logger.warning(f"🗑️ [GC] Removendo container realmente órfão (sem ID nem nome padrão): {container_name}")
+                    try:
+                        derived_id = container_name.replace("waha_plus_user_", "") if container_name else "unknown"
+                        await manager.delete_user_container(derived_id)
+                    except Exception as e:
+                        logger.error(f"Erro ao remover órfão {container_name}: {e}")
+                    continue
 
             # 2. Validar se usuário existe e tem chips
             try:
@@ -102,12 +107,12 @@ async def _cleanup_zombie_resources_async():
                 stats = await manager.get_container_stats(user_id)
                 if stats:
                     mem_mb = stats.get("memory_usage_mb", 0)
-                    # Limite seguro: 800MB (NOWEB deve usar ~100-200MB)
-                    # Se passar disso, reinicia para matar processos zumbis do Xvfb/Chromium
-                    if mem_mb > 800:
+                    # Limite seguro: 4096MB (4GB) para suportar até 10 chips com folga
+                    # Servidor tem 16GB RAM, então podemos ser generosos para evitar restarts
+                    if mem_mb > 4096:
                         logger.warning(
-                            f"⚠️ [GC] MEMORY LEAK DETECTADO em {container_name}: {mem_mb}MB gastos. "
-                            "Reiniciando para matar processos Chromium zumbis..."
+                            f"⚠️ [GC] ALTO CONSUMO DE RAM DETECTADO em {container_name}: {mem_mb}MB gastos. "
+                            "Reiniciando para prevenir travamento do servidor..."
                         )
                         await manager.restart_user_container(user_id)
                         
