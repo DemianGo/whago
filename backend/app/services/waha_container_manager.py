@@ -68,19 +68,32 @@ class WahaContainerManager:
         Raises:
             RuntimeError: Se não houver portas disponíveis
         """
-        # Obter todas as portas em uso
-        containers = self.docker_client.containers.list()
+        # Obter todas as portas em uso (INCLUINDO PARADOS)
+        containers = self.docker_client.containers.list(all=True)
         used_ports = set()
         
         for container in containers:
             if container.name.startswith("waha_plus_user_"):
-                # Extrair porta mapeada
+                # É seguro recarregar atributos para garantir dados de rede atualizados?
+                # container.reload() # Pode ser lento, vamos confiar no list(all=True) por enquanto
+                
+                # Extrair porta mapeada (HostPort)
+                # NetworkSettings -> Ports -> '3000/tcp' -> [{'HostIp': '0.0.0.0', 'HostPort': '3100'}]
                 ports = container.attrs.get("NetworkSettings", {}).get("Ports", {})
+                
+                if not ports:
+                    # Às vezes containers parados não mostram portas em NetworkSettings no list()
+                    # Tentar parsing do HostConfig se necessário ou apenas pular
+                    continue
+
                 for port_mapping in ports.values():
                     if port_mapping:
                         for mapping in port_mapping:
                             if "HostPort" in mapping:
-                                used_ports.add(int(mapping["HostPort"]))
+                                try:
+                                    used_ports.add(int(mapping["HostPort"]))
+                                except ValueError:
+                                    pass
         
         # Encontrar primeira porta disponível
         for port in range(self.PORT_RANGE_START, self.PORT_RANGE_END + 1):
@@ -141,19 +154,20 @@ class WahaContainerManager:
                 ports={"3000/tcp": port},
                 environment={
                     "WAHA_API_KEY": api_key,
-                    "WHATSAPP_SESSIONS_POSTGRESQL_URL": self.POSTGRES_URL_TEMPLATE,
+                    # "WHATSAPP_SESSIONS_POSTGRESQL_URL": self.POSTGRES_URL_TEMPLATE, # Desativado para evitar conflitos/locks. Usar SQLite local no volume.
                     "WHATSAPP_HOOK_URL": self.WEBHOOK_URL_TEMPLATE,
                     "WHATSAPP_HOOK_EVENTS": "*",
                     "WAHA_PRINT_QR": "false",
 
                     # OTIMIZAÇÕES DE RECURSOS (NOWEB - ECONOMIA EXTREMA)
-                    "WHATSAPP_DEFAULT_ENGINE": "noweb",         # Engine leve (Baileys) ~40MB RAM
-                    "WHATSAPP_NOWEB_STORE_MESSAGES": "false",   # Não armazenar mensagens na memória/banco interno
-                    "WHATSAPP_FILES_LIFETIME": "0",             # Desabilitar download automático de mídia
-                    "WAHA_LOG_LEVEL": "ERROR",                  # Logs mínimos (economia de I/O e CPU)
-                    "WHATSAPP_RECONNECT_INTERVAL": "2000",      # Tentar reconectar a cada 2s (mais agressivo)
+                    "WHATSAPP_DEFAULT_ENGINE": "NOWEB",         # Uppercase (Necessário para WAHA Plus)
+                    "WAHA_WORKER_ID": f"waha_worker_{user_id}", # Worker ID único por usuário
+                    "WHATSAPP_RECONNECT_INTERVAL": "1000",      # 1 segundo
+                    "WAHA_LOG_LEVEL": "DEBUG",                  # Aumentar logs para debug temporário
                     "WHATSAPP_RECONNECT_MAX_ATTEMPTS": "100",   # Tentar muitas vezes antes de desistir
                     "WHATSAPP_NOWEB_MARK_ONLINE_ON_CONNECT": "false", # Controle manual de presença (humanização)
+                    # PROTEÇÃO CONTRA MEMORY LEAK (Mesmo usando NOWEB)
+                    "WAHA_PUPPETEER_ARGS": "--no-sandbox --disable-gpu --disable-dev-shm-usage --disable-setuid-sandbox --single-process",
                 },
                 volumes={
                     volume_name: {"bind": "/app/.waha", "mode": "rw"}
@@ -172,14 +186,28 @@ class WahaContainerManager:
                 f"(ID: {container.id[:12]}, Porta: {port})"
             )
             
-            # Aguardar container estar pronto (WAHA Plus demora ~90-120s para inicializar)
-            await self._wait_for_container_ready(container_name, port, timeout=180)
+            # Aguardar container estar pronto
+            # OTIMIZAÇÃO: Reduzido de 180s para 5s. 
+            # O frontend tratará a espera com status "STARTING" e "Lazy Creation".
+            # Isso evita que a requisição de criação do chip dê timeout (gateway timeout).
+            await self._wait_for_container_ready(container_name, port, timeout=5)
             
+            # Recarregar container para obter IP atualizado
+            container.reload()
+            networks = container.attrs.get("NetworkSettings", {}).get("Networks", {})
+            ip_address = None
+            if "whago_default" in networks:
+                ip_address = networks["whago_default"].get("IPAddress")
+            if not ip_address and networks:
+                ip_address = list(networks.values())[0].get("IPAddress")
+            
+            base_url_final = f"http://{ip_address}:3000" if ip_address else f"http://{container_name}:3000"
+
             container_info = {
                 "container_name": container_name,
                 "container_id": container.id,
                 "port": port,
-                "base_url": f"http://{container_name}:3000",  # Acesso via nome no Docker network
+                "base_url": base_url_final,  # Acesso via IP para evitar erro de DNS
                 "external_url": f"http://localhost:{port}",  # Acesso externo
                 "api_key": api_key,
                 "status": "running",
@@ -226,7 +254,9 @@ class WahaContainerManager:
         
         logger.info(f"Aguardando container {container_name} ficar pronto...")
         
-        url = f"http://localhost:{port}/api/version"
+        # Tentar IP direto se possível (passado como argumento?)
+        # Por enquanto usa container_name que deve resolver no DNS do Docker
+        url = f"http://{container_name}:3000/api/version"
         
         for attempt in range(timeout):
             try:
@@ -241,7 +271,7 @@ class WahaContainerManager:
                             )
                             return True
             except Exception:
-                # Ainda não está pronto
+                # Ainda não está pronto ou DNS ainda não propagou
                 pass
             
             await asyncio.sleep(1)
@@ -260,13 +290,14 @@ class WahaContainerManager:
             dict | None: Informações do container ou None se não existe
         """
         # Tentar cache Redis primeiro
-        try:
-            redis = await self._get_redis()
-            cached = await redis.get(f"waha:container:{user_id}")
-            if cached:
-                return eval(cached)  # Safe porque é nosso dado
-        except Exception as e:
-            logger.warning(f"Erro ao acessar cache Redis: {e}")
+        # Desabilitado para garantir consistência com estado real do Docker
+        # try:
+        #     redis = await self._get_redis()
+        #     cached = await redis.get(f"waha:container:{user_id}")
+        #     if cached:
+        #         return eval(cached)  # Safe porque é nosso dado
+        # except Exception as e:
+        #     logger.warning(f"Erro ao acessar cache Redis: {e}")
         
         # Buscar no Docker
         container_name = f"waha_plus_user_{user_id}"
@@ -279,11 +310,25 @@ class WahaContainerManager:
             port_mapping = ports.get("3000/tcp", [{}])[0]
             port = int(port_mapping.get("HostPort", 0))
             
+            # Extrair IP Address
+            networks = container.attrs.get("NetworkSettings", {}).get("Networks", {})
+            logger.info(f"DEBUG NETWORKS for {container_name}: {networks.keys()}")
+            print(f"DEBUG NETWORKS for {container_name}: {networks.keys()}") # Force stdout
+            
+            ip_address = None
+            if "whago_default" in networks:
+                ip_address = networks["whago_default"].get("IPAddress")
+            if not ip_address and networks:
+                ip_address = list(networks.values())[0].get("IPAddress")
+            
+            logger.info(f"DEBUG IP for {container_name}: {ip_address}")
+            print(f"DEBUG IP for {container_name}: {ip_address}") # Force stdout
+            
             container_info = {
                 "container_name": container_name,
                 "container_id": container.id,
                 "port": port,
-                "base_url": f"http://{container_name}:3000",
+                "base_url": f"http://{ip_address}:3000" if ip_address else f"http://{container_name}:3000",
                 "external_url": f"http://localhost:{port}",
                 "api_key": f"waha_key_{user_id}",
                 "status": container.status,
@@ -392,15 +437,33 @@ class WahaContainerManager:
             for container in containers:
                 user_id = container.labels.get("whago.user_id")
                 
-                # Extrair porta
-                ports = container.attrs.get("NetworkSettings", {}).get("Ports", {})
-                port_mapping = ports.get("3000/tcp", [{}])[0]
-                port = int(port_mapping.get("HostPort", 0))
+                # Extrair porta com segurança
+                ports = container.attrs.get("NetworkSettings", {}).get("Ports") or {}
+                port_mapping_list = ports.get("3000/tcp")
                 
+                port = 0
+                if port_mapping_list and len(port_mapping_list) > 0:
+                    port = int(port_mapping_list[0].get("HostPort", 0))
+                
+                # Extrair IP Address para evitar problemas de DNS
+                networks = container.attrs.get("NetworkSettings", {}).get("Networks", {})
+                ip_address = None
+                # Priorizar rede padrão do projeto
+                if "whago_default" in networks:
+                    ip_address = networks["whago_default"].get("IPAddress")
+                
+                # Fallback
+                if not ip_address and networks:
+                    ip_address = list(networks.values())[0].get("IPAddress")
+
+                # Base URL interna (IP se possível, senão nome)
+                base_url = f"http://{ip_address}:3000" if ip_address else f"http://{container.name}:3000"
+
                 containers_info.append({
                     "container_name": container.name,
                     "container_id": container.id,
                     "port": port,
+                    "base_url": base_url,
                     "status": container.status,
                     "user_id": user_id,
                     "created": container.attrs.get("Created"),

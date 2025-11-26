@@ -48,6 +48,8 @@ class ChipCreate(BaseModel):
 class ChipQrResponse(BaseModel):
     qr: Optional[str] = Field(None, alias="qr_code")
     expires_at: Optional[datetime] = None
+    status: Optional[str] = None
+    message: Optional[str] = None
     
     model_config = {"populate_by_name": True}
 

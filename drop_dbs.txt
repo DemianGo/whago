@@ -1,0 +1,4 @@
+ waha_webjs
+ waha_webjs_chip_9f64ae4f-24f1-4ab7-835d-10156db8ac0e
+ waha_webjs_chip_6b1be4d5-efe7-4d34-943a-94c8ccfdfe7c
+

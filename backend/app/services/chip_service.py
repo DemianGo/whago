@@ -97,13 +97,15 @@ class ChipService:
         await self.session.flush()
 
         # ✅ NOVO: Atribuir proxy ao chip (sticky session com chip.id)
-        try:
-            proxy_service = ProxyService(self.session)
-            proxy_url = await proxy_service.assign_proxy_to_chip(chip)
-            logger.info(f"Proxy atribuído ao chip {chip.id}: {proxy_url.split('@')[1] if '@' in proxy_url else 'mascarado'}")
-        except Exception as exc:  # noqa: BLE001
-            logger.warning(f"Falha ao atribuir proxy ao chip {chip.id}: {exc}. Continuando sem proxy.")
-            proxy_url = None
+        # DESATIVADO TEMPORARIAMENTE PARA DIAGNÓSTICO DE QR CODE
+        proxy_url = None
+        # try:
+        #     proxy_service = ProxyService(self.session)
+        #     proxy_url = await proxy_service.assign_proxy_to_chip(chip)
+        #     logger.info(f"Proxy atribuído ao chip {chip.id}: {proxy_url.split('@')[1] if '@' in proxy_url else 'mascarado'}")
+        # except Exception as exc:  # noqa: BLE001
+        #     logger.warning(f"Falha ao atribuir proxy ao chip {chip.id}: {exc}. Continuando sem proxy.")
+        #     proxy_url = None
 
         # ✅ CRIAR CONTAINER WAHA PLUS E SESSÃO
         try:
@@ -175,17 +177,27 @@ class ChipService:
             await self.session.flush()
                 
         except Exception as exc:  # noqa: BLE001
-            # Rollback e deletar chip criado
-            await self.session.rollback()
-            logger.error(
-                "Falha crítica ao criar sessão WAHA Plus para alias %s: %s",
+            # SOFT-FAIL: Se falhar ao criar sessão (ex: container iniciando), não abortar criação do chip.
+            # O sistema tentará criar a sessão novamente ao buscar o QR Code.
+            logger.warning(
+                "Sessão WAHA não criada imediatamente para alias %s (container iniciando?): %s",
                 payload.alias,
                 exc,
             )
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Falha ao criar sessão WhatsApp. Tente novamente em alguns instantes."
-            ) from exc
+            
+            # Garantir que session_id está definido para tentativas futuras
+            if not chip.session_id or chip.session_id.startswith("temp-"):
+                chip.session_id = session_name
+            
+            chip.extra_data["waha_status"] = "STARTING"
+            chip.extra_data["waha_plus_container"] = container['container_name']
+            chip.extra_data["waha_session"] = session_name
+            chip.extra_data["proxy_enabled"] = bool(proxy_url)
+            chip.extra_data["proxy_used"] = proxy_url is not None
+            
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(chip, "extra_data")
+            await self.session.flush()
 
         await self._add_event(
             chip,
@@ -230,8 +242,34 @@ class ChipService:
         
         data = await waha_client.get_qr_code(session_name)
         
+        # ✅ LAZY CREATION: Se sessão não existe (ex: falhou na criação do chip), criar agora
+        if data.get("status") == "NOT_FOUND":
+            logger.info(f"Sessão {session_name} não encontrada no WAHA. Tentando recriar (Lazy Creation)...")
+            try:
+                # Obter proxy se houver
+                proxy_service = ProxyService(self.session)
+                proxy_url = await proxy_service.get_chip_proxy_url(chip.id)
+                
+                # Criar sessão
+                await waha_client.create_session(
+                    alias=session_name,
+                    proxy_url=proxy_url,
+                    tenant_id=str(user.id),
+                    user_id=str(user.id),
+                )
+                
+                # Aguardar brevemente e tentar buscar QR de novo
+                import asyncio
+                await asyncio.sleep(1)
+                data = await waha_client.get_qr_code(session_name)
+                
+            except Exception as e:
+                logger.error(f"Falha na recriação lazy da sessão {session_name}: {e}")
+                # Retornar erro ou status STARTING para frontend tentar de novo
+                data = {"status": "STARTING", "message": "Tentando criar sessão..."}
+        
         # WAHA Plus retorna QR code diretamente como base64 PNG
-        qr_data = data.get("qr_code")
+        qr_data = data.get("qr_code") or data.get("qr")
         expires_at = None  # WAHA Plus não fornece expiração explícita
         
         logger.info(
@@ -240,18 +278,20 @@ class ChipService:
             f"Status: {data.get('status')}"
         )
         
-        return ChipQrResponse(qr=qr_data, expires_at=expires_at)
+        return ChipQrResponse(
+            qr=qr_data, 
+            expires_at=expires_at,
+            status=data.get("status"),
+            message=data.get("message")
+        )
 
     async def delete_chip(self, user: User, chip_id: UUID) -> None:
         """
         Deleta um chip e sua sessão WAHA Plus.
-        
-        Fluxo correto:
-        1. Se chip está conectado, desconecta primeiro
-        2. Libera proxy (IP fica disponível)
-        3. Deleta sessão do WAHA Plus
-        4. Deleta registro do banco de dados
         """
+        import traceback
+        logger.info(f"DELETE_CHIP CHAMADO PARA {chip_id}. Traceback:\n{''.join(traceback.format_stack())}")
+        
         chip = await self._get_user_chip(user, chip_id)
         
         # Obter cliente WAHA do container do usuário
@@ -324,20 +364,38 @@ class ChipService:
         
         if not proxy_url:
             # Se não tem proxy, atribuir novo
-            proxy_url = await proxy_service.assign_proxy_to_chip(chip)
-            logger.info(f"Novo proxy atribuído ao chip {chip.id}")
+            try:
+                proxy_url = await proxy_service.assign_proxy_to_chip(chip)
+                logger.info(f"Novo proxy atribuído ao chip {chip.id}")
+            except Exception as exc:
+                logger.warning(f"Falha ao atribuir proxy ao chip {chip.id} na reconexão: {exc}")
+                proxy_url = None
         
         # 3. Criar nova sessão WAHA
-        await waha_client.create_session(
-            alias=session_name,
-            proxy_url=proxy_url,
-        )
-        logger.info(f"Nova sessão WAHA criada: {session_name}")
+        try:
+            waha_response = await waha_client.create_session(
+                alias=session_name,
+                name=session_name,
+                proxy_url=proxy_url,
+                tenant_id=str(user.id),
+                user_id=str(user.id),
+                engine="noweb", # Forçar NOWEB explicitamente
+            )
+            logger.info(f"Nova sessão WAHA criada: {session_name}")
+            chip.extra_data["waha_status"] = waha_response.get("status")
+            chip.extra_data["fingerprint"] = waha_response.get("fingerprint")
+        except Exception as exc:
+            logger.warning(f"Erro ao recriar sessão WAHA {session_name} (Soft-Fail): {exc}")
+            chip.extra_data["waha_status"] = "STARTING"
         
         # 4. Atualizar status DO CHIP
         chip.status = ChipStatus.WAITING_QR
         chip.phone_number = None
         chip.connected_at = None
+        chip.extra_data["waha_session"] = session_name
+        chip.extra_data["proxy_enabled"] = bool(proxy_url)
+        chip.extra_data["proxy_used"] = proxy_url is not None
+        
         from sqlalchemy.orm.attributes import flag_modified
         flag_modified(chip, "extra_data")
         await self.session.flush()  # Persistir mudanças antes de adicionar eventos

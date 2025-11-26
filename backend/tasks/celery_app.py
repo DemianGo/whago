@@ -54,6 +54,11 @@ celery_app.conf.update(
             "task": "execute_chip_maturation_cycle",
             "schedule": 60.0,  # A cada 1 minuto (60 execuções/hora)
         },
+        # Garbage Collector de Containers (BrowserManager)
+        "cleanup-zombie-resources": {
+            "task": "cleanup_zombie_resources",
+            "schedule": 600.0,  # A cada 10 minutos
+        },
         # Watchdog de Infraestrutura
         "check-containers-health": {
             "task": "check_containers_health",

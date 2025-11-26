@@ -64,12 +64,22 @@ async def _check_containers_health_async():
                 logger.warning(f"⚠️ Container {container_name} não responde API: {e}")
             
             if not is_healthy:
-                # Verificar há quanto tempo o container foi criado/iniciado
-                # Se acabou de iniciar (< 60s), dá um desconto.
-                # Mas Docker 'Created' é string.
-                # Vamos assumir que se a task roda a cada 60s e falhou, na proxima se falhar de novo...
-                # Melhor: Reiniciar se falhar. O restart do Docker é rápido.
-                
+                # Verificar se container acabou de ser criado (grace period)
+                created_str = container.get("created")
+                if created_str:
+                    try:
+                        # Docker format: 2025-11-26T04:14:32.344775962Z
+                        # Simplificar parsing removendo nanossegundos se necessario
+                        created_dt = datetime.fromisoformat(created_str.replace("Z", "+00:00"))
+                        now = datetime.now(timezone.utc)
+                        uptime = (now - created_dt).total_seconds()
+                        
+                        if uptime < 120:  # 2 minutos de grace period
+                            logger.info(f"⏳ Container {container_name} em startup ({int(uptime)}s). Ignorando health check.")
+                            continue
+                    except Exception as e:
+                        logger.warning(f"Erro ao parsear data de criação do container {container_name}: {e}")
+
                 logger.warning(f"🔄 Reiniciando container travado: {container_name}")
                 await manager.restart_user_container(user_id)
                 

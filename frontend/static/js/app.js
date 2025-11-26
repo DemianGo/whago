@@ -893,45 +893,66 @@ async function openConnectModal(chipId) {
 async function showChipQrCode(chipId) {
   console.log('[showChipQrCode] Iniciando para chip:', chipId);
   
+  // Garantir que o modal está visível
+  const modal = document.getElementById("chip-modal");
+  const backdrop = document.getElementById("chip-modal-backdrop");
+  if (modal && modal.classList.contains("hidden")) {
+      modal.classList.remove("hidden");
+      backdrop.classList.remove("hidden");
+  }
+
   // Hide form, show QR section
   const form = document.getElementById("chip-form");
   const qrSection = document.getElementById("chip-qr-section");
   const qrLoading = document.getElementById("chip-qr-loading");
   const qrImage = document.getElementById("chip-qr-image");
   const qrStatus = document.getElementById("chip-qr-status");
-  
-  console.log('[showChipQrCode] Elementos encontrados:', { 
-    form: !!form, 
-    qrSection: !!qrSection, 
-    qrImage: !!qrImage, 
-    qrLoading: !!qrLoading 
-  });
-  
-  if (!form || !qrSection || !qrImage || !qrLoading) {
-    console.error('[showChipQrCode] Elementos faltando!');
-    return;
+  const modalTitle = document.querySelector("#chip-modal h3");
+
+  if (modalTitle) {
+      modalTitle.textContent = "Conectar WhatsApp";
   }
   
-  form.classList.add("hidden");
-  qrSection.classList.remove("hidden");
-  qrLoading.classList.remove("hidden");
-  qrImage.classList.add("hidden");
+  // Resetar estado visual
+  if (form) form.classList.add("hidden");
+  if (qrSection) qrSection.classList.remove("hidden");
+  if (qrLoading) qrLoading.classList.remove("hidden");
+  if (qrImage) {
+      qrImage.classList.add("hidden");
+      qrImage.src = ""; // Limpar imagem anterior
+  }
+  if (qrStatus) {
+      qrStatus.textContent = "Aguardando QR Code...";
+      qrStatus.className = "text-center text-sm text-slate-500 animate-pulse";
+  }
   
-  console.log('[showChipQrCode] QR section exibida');
+  console.log('[showChipQrCode] QR section ativada');
   
   chipState.currentChipId = chipId;
+  
+  // Limpar intervalo anterior se existir
+  if (chipState.qrPollIntervalId) {
+      clearInterval(chipState.qrPollIntervalId);
+  }
+
+  // Poll a cada 3 segundos
   chipState.qrPollIntervalId = setInterval(() => {
     void fetchAndDisplayQrCode(chipId);
-  }, 5000); // Poll every 5 seconds
+  }, 3000); 
   
-  // Initial fetch
+  // Initial fetch imediato
   await fetchAndDisplayQrCode(chipId);
   
   // Bind close button
   const closeButton = document.getElementById("chip-qr-close");
-  closeButton?.addEventListener("click", () => {
-    closeChipQrModal();
-  });
+  // Remover listeners antigos para evitar duplicação (cloneNode)
+  if (closeButton) {
+      const newBtn = closeButton.cloneNode(true);
+      closeButton.parentNode.replaceChild(newBtn, closeButton);
+      newBtn.addEventListener("click", () => {
+        closeChipQrModal();
+      });
+  }
 }
 
 async function fetchAndDisplayQrCode(chipId) {
@@ -946,35 +967,43 @@ async function fetchAndDisplayQrCode(chipId) {
     
     if (!response?.ok) {
       if (qrStatus) {
-        qrStatus.textContent = "Erro ao buscar QR Code. Tentando novamente...";
-        qrStatus.className = "text-center text-sm text-red-600";
+        qrStatus.textContent = "Aguardando inicialização do sistema...";
+        qrStatus.className = "text-center text-sm text-amber-600 animate-pulse";
       }
       return;
     }
     
     const data = await response.json();
-    console.log('[QR Code Debug]', { chipId, data, hasQrCode: !!(data.qr_code || data.qr) });
+    // console.log('[QR Code Debug]', { status: data.status, hasQr: !!data.qr_code });
     
-    // Backend retorna 'qr_code', não 'qr'
     const qrCode = data.qr_code || data.qr;
     
-    if (qrCode) {
-      // QR code is available
+    if (qrCode && qrCode.startsWith("data:image")) {
+      // QR code válido encontrado
       if (qrLoading) qrLoading.classList.add("hidden");
+      
       qrImage.src = qrCode;
       qrImage.classList.remove("hidden");
       
+      // Forçar display block para garantir centralização se necessário
+      qrImage.style.display = "block"; 
+      
       if (qrStatus) {
-          qrStatus.textContent = "Escaneie o QR Code acima com seu WhatsApp";
-          qrStatus.className = "text-center text-sm text-slate-600";
+          qrStatus.textContent = "Escaneie o QR Code com seu WhatsApp";
+          qrStatus.className = "text-center text-sm text-slate-600 font-medium";
       }
     } else {
-      // No QR code yet
+      // Sem QR code ainda
       if (qrLoading) qrLoading.classList.remove("hidden");
       qrImage.classList.add("hidden");
+      
       if (qrStatus) {
-        // Mostrar status real vindo do backend
-        const statusMsg = data.message || (data.status ? `Status: ${data.status}` : "Aguardando QR Code...");
+        let statusMsg = data.message || (data.status ? `Status: ${data.status}` : "Aguardando...");
+        
+        // Traduções amigáveis
+        if (data.status === "STARTING") statusMsg = "Iniciando WhatsApp... Aguarde.";
+        if (data.status === "SCAN_QR_CODE") statusMsg = "Gerando QR Code...";
+        
         qrStatus.textContent = statusMsg;
         
         if (data.status === "CONNECTED" || data.status === "WORKING") {
@@ -983,33 +1012,29 @@ async function fetchAndDisplayQrCode(chipId) {
              setTimeout(() => closeChipQrModal(), 2000);
         } else if (data.status === "FAILED" || data.status === "STOPPED") {
              qrStatus.className = "text-center text-sm text-red-600 font-bold";
+             statusMsg = "Erro na conexão. Tentando reiniciar...";
+             qrStatus.textContent = statusMsg;
         } else {
              qrStatus.className = "text-center text-sm text-slate-500 animate-pulse";
         }
       }
     }
     
-    // Check chip status
+    // Check chip status final para fechar modal se conectar via outro meio
     const chipResponse = await apiFetch(`/chips/${chipId}`);
     if (chipResponse?.ok) {
       const chip = await chipResponse.json();
       if (chip.status === "connected") {
-        // Chip connected, close modal
         if (qrStatus) {
           qrStatus.textContent = "✅ Chip conectado com sucesso!";
-          qrStatus.className = "text-center text-sm text-green-600 font-semibold";
+          qrStatus.className = "text-center text-sm text-green-600 font-bold";
         }
-        setTimeout(() => {
-          closeChipQrModal();
-        }, 2000);
+        setTimeout(() => closeChipQrModal(), 2000);
       }
     }
-  } catch (error) {
-    console.error("Error fetching QR code:", error);
-    if (qrStatus) {
-      qrStatus.textContent = "Erro ao buscar QR Code. Tentando novamente...";
-      qrStatus.className = "text-center text-sm text-red-600";
-    }
+            
+  } catch (err) {
+    console.error("Erro no poll de QR:", err);
   }
 }
 
@@ -4261,3 +4286,4 @@ document.getElementById("global-stats-close")?.addEventListener("click", closeGl
 document.getElementById("global-stats-ok")?.addEventListener("click", closeGlobalStatsModal);
 document.getElementById("global-stats-backdrop")?.addEventListener("click", closeGlobalStatsModal);
 document.getElementById("global-stats-refresh")?.addEventListener("click", loadGlobalStats);
+

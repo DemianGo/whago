@@ -37,6 +37,13 @@ class WAHAClient:
             )
         return self._client
 
+    async def get_sessions(self) -> list[dict[str, Any]]:
+        """Obtém todas as sessões (Health Check)."""
+        client = await self._get_client()
+        response = await client.get("/api/sessions?all=true")
+        response.raise_for_status()
+        return response.json()
+
     async def close(self) -> None:
         """Fecha o cliente HTTP."""
         if self._client and not self._client.is_closed:
@@ -90,8 +97,32 @@ class WAHAClient:
             
             # Gerar fingerprint consistente baseado no alias (session_id)
             fingerprint = FingerprintService.get_fingerprint(alias)
-            config_data = fingerprint
             
+            # ADAPTAÇÃO PARA NOWEB (BAILEYS)
+            # Baileys não suporta metadata/headers complexos como WEBJS/Puppeteer
+            # Ele suporta 'browser': ['Ubuntu', 'Chrome', '20.0.04']
+            
+            config_data = {}
+            
+            # Extrair dados para formato Baileys se disponível
+            if fingerprint.get("metadata"):
+                meta = fingerprint["metadata"]
+                # Formato: [Descrição OS, Nome Browser, Versão]
+                # Ex: ["Whago", "Chrome", "120.0.0"]
+                # Se for Android, Baileys tem mode 'mobile' ou custom browser
+                
+                # Vamos usar um formato Desktop camuflado para estabilidade com NOWEB
+                config_data["browser"] = [
+                    "Mac OS", # OS Description
+                    "Desktop", # Browser Name
+                    meta.get("browser_version", "10.15.7") # Version
+                ]
+                
+                # Se quisermos simular mobile com NOWEB, WAHA Plus pode ter config específica
+                # Mas 'browser' customizado geralmente é suficiente para diferenciar sessões
+            else:
+                config_data = fingerprint # Fallback (mas provavelmente não será usado como está)
+
             if proxy_url:
                 # Extrair componentes do proxy URL
                 proxy_parts = self._parse_proxy_url(proxy_url)
@@ -105,11 +136,15 @@ class WAHAClient:
             payload = {
                 "name": session_name,
                 "config": config_data,
+                "engine": "NOWEB", # Forçar NOWEB explicitamente (uppercase)
             }
             
+            logger.debug(f"Payload enviado para WAHA create_session: {payload}")
+
+            
             # Retry logic para container que ainda está inicializando
-            max_retries = 3
-            retry_delay = 15  # segundos
+            max_retries = 10
+            retry_delay = 2  # segundos (reduzido de 15s para ser mais ágil)
             
             for attempt in range(max_retries):
                 try:
@@ -124,11 +159,12 @@ class WAHAClient:
                     break  # Sucesso, sair do loop
                     
                 except httpx.HTTPStatusError as e:
-                    if attempt < max_retries - 1 and e.response.status_code in [400, 503]:
+                    if attempt < max_retries - 1 and e.response.status_code in [400, 503, 502, 504]:
                         # Container ainda não pronto, aguardar e tentar novamente
+                        # 400 as vezes é retornado quando engine ainda nao ta pronta
                         logger.warning(
-                            f"Tentativa {attempt + 1}/{max_retries} falhou para {session_name}. "
-                            f"Aguardando {retry_delay}s antes de retentar..."
+                            f"Tentativa {attempt + 1}/{max_retries} falhou para {session_name} (Status {e.response.status_code}). "
+                            f"Aguardando {retry_delay}s..."
                         )
                         await asyncio.sleep(retry_delay)
                     else:
@@ -155,12 +191,17 @@ class WAHAClient:
                     raise
             
             # Aguardar um pouco para a sessão inicializar
-            await asyncio.sleep(3)
+            # await asyncio.sleep(3) # Removido para agilizar retorno ao frontend
             
             # Buscar status atualizado
-            status_response = await client.get(f"/api/sessions/{session_name}")
-            status_response.raise_for_status()
-            final_data = status_response.json()
+            try:
+                status_response = await client.get(f"/api/sessions/{session_name}")
+                if status_response.status_code == 200:
+                    final_data = status_response.json()
+                else:
+                     final_data = {"status": "STARTING"}
+            except Exception:
+                 final_data = {"status": "STARTING"}
             
             # Session ID curto para caber no VARCHAR(100)
             import hashlib
@@ -299,6 +340,20 @@ class WAHAClient:
                     "session_id": session_id,
                 }
                 
+        except httpx.HTTPStatusError as e:
+            if e.response.status_code == 404:
+                return {
+                    "status": "NOT_FOUND",
+                    "message": "Sessão não encontrada no WAHA.",
+                    "session_id": session_id
+                }
+            logger.error(f"Erro ao obter QR Code (HTTPStatusError): {e}")
+            return {
+                "qr_code": None,
+                "status": "UNAVAILABLE",
+                "message": "Serviço indisponível temporariamente.",
+                "session_id": session_id,
+            }
         except httpx.HTTPError as e:
             logger.error(f"Erro ao obter QR Code (HTTPError): {e}")
             # Se for timeout ou conexão recusada, retornar status especial para frontend não quebrar
@@ -375,9 +430,14 @@ class WAHAClient:
         
         # ✅ WAHA Plus: usar o session_id (alias) correto
         try:
-            # Primeiro parar
-            await self._stop_session(session_id)
-            await asyncio.sleep(2)
+            # Primeiro parar (Tentar 3 vezes)
+            for _ in range(3):
+                try:
+                    await self._stop_session(session_id)
+                    await asyncio.sleep(1)
+                    break
+                except httpx.HTTPError:
+                    await asyncio.sleep(1)
             
             # Depois deletar
             response = await client.delete(f"/api/sessions/{session_id}")
@@ -387,6 +447,10 @@ class WAHAClient:
             return {"success": True, "session_id": session_id}
             
         except httpx.HTTPError as e:
+            # Se der 404, já foi deletada
+            if e.response.status_code == 404:
+                return {"success": True, "session_id": session_id, "message": "Already deleted"}
+                
             logger.error(f"Erro ao deletar sessão: {e}")
             return {"success": False, "session_id": session_id, "error": str(e)}
 
