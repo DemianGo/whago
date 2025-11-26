@@ -60,8 +60,15 @@ async def _check_containers_health_async():
                 # Tenta listar sessões (leve)
                 await waha.get_sessions()
             except Exception as e:
-                is_healthy = False
-                logger.warning(f"⚠️ Container {container_name} não responde API: {e}")
+                error_msg = str(e)
+                # Se for erro de conexão/timeout, pode estar travado
+                # Se for erro de código (AttributeError, etc), não reiniciar
+                if "NoneType" in error_msg or "AttributeError" in error_msg:
+                    logger.error(f"❌ Erro interno no Health Check para {container_name}: {e}. NÃO REINICIANDO.")
+                    is_healthy = True # Assumir saudável para não matar container por bug nosso
+                else:
+                    is_healthy = False
+                    logger.warning(f"⚠️ Container {container_name} não responde API: {e}")
             
             if not is_healthy:
                 # Verificar se container acabou de ser criado (grace period)
