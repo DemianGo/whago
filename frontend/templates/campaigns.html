@@ -94,27 +94,33 @@
           <label class="card__label" for="campaign-description">Descrição</label>
           <textarea id="campaign-description" class="input" rows="2" placeholder="Objetivo, público, oferta..."></textarea>
         </div>
-        <div class="grid gap-4 md:grid-cols-2">
-          <div class="space-y-2">
-            <label class="card__label" for="campaign-template">Mensagem (etapa principal)</label>
-            <textarea id="campaign-template" class="input" rows="4" placeholder="Olá {{nome}}, temos uma condição especial!" required></textarea>
-          </div>
-          <div class="space-y-2">
-            <label class="card__label" for="campaign-template-b">Mensagem B (opcional)</label>
-            <textarea id="campaign-template-b" class="input" rows="4" placeholder="Use para testes A/B (Enterprise)"></textarea>
-          </div>
+
+        <div class="space-y-2">
+            <label class="card__label">Fluxo de Mensagens (Steps)</label>
+            <div id="campaign-steps-container" class="space-y-3 min-h-[100px] max-h-[350px] overflow-y-auto border border-slate-200 rounded-md p-3 bg-slate-50 custom-scrollbar">
+                <p class="text-center text-sm text-gray-400 py-4" id="empty-steps-msg">Adicione etapas à sua campanha.</p>
+            </div>
+            <div class="flex gap-2">
+                <button type="button" class="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50" id="btn-add-text">
+                    📝 Texto
+                </button>
+                <button type="button" class="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50" id="btn-add-media">
+                    🖼️ Mídia
+                </button>
+                <button type="button" class="px-3 py-1.5 text-xs font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50" id="btn-add-delay">
+                    ⏱️ Delay
+                </button>
+            </div>
+            <!-- Inputs ocultos para manter compatibilidade com validação antiga se necessário -->
+            <textarea id="campaign-template" class="hidden"></textarea> 
         </div>
+
         <div id="campaign-variables-box" class="hidden space-y-2 rounded-xl border border-dashed border-slate-300 p-3">
           <h4 class="text-sm font-medium text-slate-700">Variáveis detectadas</h4>
           <div id="campaign-variables" class="flex flex-wrap gap-2 text-xs"></div>
-          <p class="text-xs text-slate-500">Clique em uma variável para inserir no texto usando o formato <code>{{variavel}}</code>.</p>
+          <p class="text-xs text-slate-500">Clique em uma variável para inserir no texto.</p>
         </div>
-        <div class="space-y-2">
-          <label class="card__label" for="campaign-media">Anexar mídia (opcional)</label>
-          <input id="campaign-media" type="file" class="input" accept="image/*,application/pdf,audio/*,video/mp4" />
-          <p id="campaign-media-feedback" class="text-xs text-slate-500">Formatos aceitos: imagens, PDF, áudio (MP3/OGG) e vídeo MP4 até 10MB.</p>
-          <ul id="campaign-media-list" class="hidden space-y-1 text-xs text-slate-600"></ul>
-        </div>
+
         <label class="inline-flex items-center gap-2 text-sm text-slate-600">
           <input type="checkbox" id="campaign-schedule-toggle" class="rounded border-slate-300" />
           Agendar envio futuro
@@ -185,4 +191,277 @@
   </div>
 </div>
 <div id="campaign-wizard-backdrop" class="modal__backdrop hidden" aria-hidden="true"></div>
+
+<!-- Modal Seletor de Mídia -->
+<div id="media-selector-modal" class="fixed inset-0 z-[100] hidden" role="dialog" aria-modal="true">
+    <div class="fixed inset-0 bg-black bg-opacity-50 transition-opacity"></div>
+    <div class="fixed inset-0 z-10 overflow-y-auto">
+        <div class="flex min-h-full items-center justify-center p-4 text-center sm:p-0">
+            <div class="relative transform overflow-hidden rounded-lg bg-white text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-2xl">
+                <div class="bg-white px-4 pb-4 pt-5 sm:p-6 sm:pb-4">
+                    <div class="flex justify-between items-center mb-4">
+                        <h3 class="text-lg font-semibold leading-6 text-gray-900">Selecionar Mídia da Galeria</h3>
+                        <button type="button" id="media-selector-close" class="text-gray-400 hover:text-gray-500">
+                            <span class="sr-only">Fechar</span>
+                            <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        </button>
+                    </div>
+                    
+                    <div id="media-selector-grid" class="grid grid-cols-3 gap-4 max-h-[400px] overflow-y-auto p-2">
+                        <!-- Itens carregados via JS -->
+                        <div class="col-span-3 text-center py-8 text-gray-500">Carregando mídia...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+<script>
+    // Estado global dos Steps
+    window.campaignSteps = [];
+
+    // Inicialização
+    document.addEventListener('DOMContentLoaded', () => {
+        // Listeners dos botões de adicionar step
+        document.getElementById('btn-add-text')?.addEventListener('click', () => addStep('text'));
+        document.getElementById('btn-add-media')?.addEventListener('click', () => openMediaSelector());
+        document.getElementById('btn-add-delay')?.addEventListener('click', () => addStep('delay'));
+        
+        // Listener do modal de mídia
+        document.getElementById('media-selector-close')?.addEventListener('click', closeMediaSelector);
+        
+        // Renderizar inicial (vazio)
+        renderCampaignSteps();
+    });
+
+    function addStep(type, data = {}) {
+        const step = { type, ...data };
+        if (type === 'text') {
+            step.content = '';
+        } else if (type === 'delay') {
+            step.time = 5;
+        }
+        window.campaignSteps.push(step);
+        renderCampaignSteps();
+    }
+
+    function removeStep(index) {
+        window.campaignSteps.splice(index, 1);
+        renderCampaignSteps();
+    }
+
+    function moveStep(index, direction) {
+        if (direction === -1 && index > 0) {
+            [window.campaignSteps[index], window.campaignSteps[index - 1]] = [window.campaignSteps[index - 1], window.campaignSteps[index]];
+        } else if (direction === 1 && index < window.campaignSteps.length - 1) {
+            [window.campaignSteps[index], window.campaignSteps[index + 1]] = [window.campaignSteps[index + 1], window.campaignSteps[index]];
+        }
+        renderCampaignSteps();
+    }
+
+    function updateStep(index, field, value) {
+        window.campaignSteps[index][field] = value;
+        updateHiddenTemplate();
+    }
+
+    function updateHiddenTemplate() {
+        const texts = window.campaignSteps
+            .filter(s => s.type === 'text')
+            .map(s => s.content)
+            .join('\n---\n');
+        
+        const hiddenInput = document.getElementById('campaign-template');
+        if (hiddenInput) {
+            hiddenInput.value = texts || (window.campaignSteps.length > 0 ? '[Campanha Multimídia]' : '');
+        }
+    }
+
+    window.renderCampaignSteps = function() {
+        const container = document.getElementById('campaign-steps-container');
+        if (!container) return;
+        
+        if (window.campaignSteps.length === 0) {
+            container.innerHTML = '<p class="text-center text-sm text-gray-400 py-4">Adicione etapas à sua campanha.</p>';
+            updateHiddenTemplate();
+            return;
+        }
+
+        container.innerHTML = '';
+        
+        window.campaignSteps.forEach((step, index) => {
+            const el = document.createElement('div');
+            el.className = 'relative group border border-slate-200 rounded bg-white p-3 flex gap-3 items-start';
+            
+            // Ícone do tipo
+            let icon = '❓';
+            if (step.type === 'text') icon = '📝';
+            if (step.type === 'media') icon = '🖼️';
+            if (step.type === 'delay') icon = '⏱️';
+            
+            // Conteúdo do Step
+            let contentHtml = '';
+            
+            if (step.type === 'text') {
+                contentHtml = `
+                    <div class="flex-1">
+                        <label class="block text-xs font-medium text-gray-700 mb-1">Mensagem de Texto</label>
+                        <textarea 
+                            class="w-full text-sm border-slate-300 rounded-md focus:border-indigo-500 focus:ring-indigo-500" 
+                            rows="3" 
+                            placeholder="Olá {{nome}}..."
+                            oninput="updateStep(${index}, 'content', this.value)"
+                        >${step.content || ''}</textarea>
+                        <p class="text-[10px] text-gray-400 mt-1">Variáveis: {{nome}}, {{empresa}}...</p>
+                    </div>
+                `;
+            } else if (step.type === 'delay') {
+                contentHtml = `
+                    <div class="flex-1">
+                        <label class="block text-xs font-medium text-gray-700 mb-1">Aguardar (segundos)</label>
+                        <input 
+                            type="number" 
+                            class="w-24 text-sm border-slate-300 rounded-md focus:border-indigo-500 focus:ring-indigo-500" 
+                            value="${step.time || 5}" 
+                            min="1" 
+                            max="120"
+                            onchange="updateStep(${index}, 'time', parseInt(this.value))"
+                        >
+                    </div>
+                `;
+            } else if (step.type === 'media') {
+                const isImage = step.content_type?.startsWith('image');
+                const isVideo = step.content_type?.startsWith('video');
+                const isAudio = step.content_type?.startsWith('audio');
+                
+                let preview = '';
+                if (isImage) preview = `<img src="${step.media_url}" class="h-16 w-16 object-cover rounded border">`;
+                else if (isVideo) preview = `<div class="h-16 w-16 bg-gray-100 flex items-center justify-center rounded border"><i class="fas fa-video text-gray-400"></i></div>`;
+                else if (isAudio) preview = `<div class="h-16 w-16 bg-gray-100 flex items-center justify-center rounded border"><i class="fas fa-music text-gray-400"></i></div>`;
+                else preview = `<div class="h-16 w-16 bg-gray-100 flex items-center justify-center rounded border"><i class="fas fa-file text-gray-400"></i></div>`;
+
+                contentHtml = `
+                    <div class="flex-1 flex gap-3">
+                        ${preview}
+                        <div class="flex-1">
+                            <label class="block text-xs font-medium text-gray-700 mb-1">Mídia: ${step.filename || 'Arquivo'}</label>
+                            ${(isImage || isVideo) ? `
+                                <input 
+                                    type="text" 
+                                    class="w-full text-sm border-slate-300 rounded-md mt-1 placeholder:text-gray-400" 
+                                    placeholder="Legenda (opcional)"
+                                    value="${step.caption || ''}"
+                                    oninput="updateStep(${index}, 'caption', this.value)"
+                                >
+                            ` : ''}
+                            ${isAudio ? `
+                                <label class="inline-flex items-center gap-2 mt-1 text-xs text-slate-600">
+                                    <input type="checkbox" class="rounded border-slate-300" 
+                                        ${step.ppt !== false ? 'checked' : ''} 
+                                        onchange="updateStep(${index}, 'ppt', this.checked)">
+                                    Enviar como nota de voz (PTT)
+                                </label>
+                            ` : ''}
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Controles
+            const controlsHtml = `
+                <div class="flex flex-col gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button type="button" onclick="moveStep(${index}, -1)" class="p-1 text-gray-400 hover:text-indigo-600" title="Mover para cima" ${index === 0 ? 'disabled' : ''}>⬆️</button>
+                    <button type="button" onclick="moveStep(${index}, 1)" class="p-1 text-gray-400 hover:text-indigo-600" title="Mover para baixo" ${index === window.campaignSteps.length - 1 ? 'disabled' : ''}>⬇️</button>
+                    <button type="button" onclick="removeStep(${index})" class="p-1 text-gray-400 hover:text-red-600" title="Remover etapa">🗑️</button>
+                </div>
+            `;
+
+            el.innerHTML = `
+                <div class="text-xl select-none cursor-move text-gray-300 pt-1">${icon}</div>
+                ${contentHtml}
+                ${controlsHtml}
+            `;
+            
+            container.appendChild(el);
+        });
+        
+        updateHiddenTemplate();
+    };
+
+    // --- Lógica de Seleção de Mídia ---
+    
+    let isMediaLoading = false;
+
+    async function openMediaSelector() {
+        const modal = document.getElementById('media-selector-modal');
+        modal.classList.remove('hidden');
+        loadMediaGrid();
+    }
+
+    function closeMediaSelector() {
+        document.getElementById('media-selector-modal').classList.add('hidden');
+    }
+
+    async function loadMediaGrid() {
+        const grid = document.getElementById('media-selector-grid');
+        if (isMediaLoading) return;
+        isMediaLoading = true;
+        
+        try {
+            const response = await fetch('/api/v1/media-gallery', {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
+            
+            if (!response.ok) throw new Error('Erro ao carregar mídia');
+            
+            const items = await response.json();
+            
+                    if (items.length === 0) {
+                        grid.innerHTML = `
+                            <div class="col-span-3 text-center py-8 text-gray-500">
+                                <p class="mb-4">Nenhuma mídia encontrada.</p>
+                                <a href="/media-gallery" class="inline-flex justify-center rounded-md bg-indigo-600 px-3 py-2 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600">
+                                    Ir para Galeria e fazer Upload
+                                </a>
+                            </div>
+                        `;
+                        return;
+                    }
+            
+            grid.innerHTML = items.map(item => `
+                <div class="border rounded p-2 cursor-pointer hover:border-indigo-500 transition-colors" onclick="selectMedia('${item.id}', '${item.url}', '${item.filename}', '${item.content_type}')">
+                    <div class="h-24 bg-gray-100 flex items-center justify-center overflow-hidden rounded mb-2">
+                        ${item.content_type.startsWith('image') 
+                            ? `<img src="${item.url}" class="h-full w-full object-cover">`
+                            : `<i class="fas ${item.content_type.startsWith('video') ? 'fa-video' : 'fa-music'} text-2xl text-gray-400"></i>`
+                        }
+                    </div>
+                    <p class="text-xs truncate text-center">${item.filename}</p>
+                </div>
+            `).join('');
+            
+        } catch (e) {
+            grid.innerHTML = '<div class="col-span-3 text-center py-8 text-red-500">Erro ao carregar galeria.</div>';
+        } finally {
+            isMediaLoading = false;
+        }
+    }
+
+    // Expor selectMedia globalmente
+    window.selectMedia = function(id, url, filename, contentType) {
+        addStep('media', {
+            media_id: id,
+            media_url: url,
+            filename: filename,
+            content_type: contentType,
+            caption: '',
+            ppt: true // default true for audio
+        });
+        closeMediaSelector();
+    };
+
+</script>
 {% endblock %}

@@ -264,7 +264,21 @@ async def _execute_send_message(message_id: UUID) -> bool:
             
             # Verificar se o chip está conectado
             if chip.status != ChipStatus.CONNECTED:
-                raise Exception(f"Chip não está conectado (status: {chip.status})")
+                # Verificar se há outros chips disponíveis na campanha
+                # Se for o único chip e estiver desconectado, PAUSAR a campanha
+                # Lógica simplificada: Se falhar conexão, assumir crítico e pausar para não queimar contatos
+                logger.warning(f"Chip {chip.alias} desconectado durante envio. Pausando campanha {campaign.id}.")
+                
+                await _update_campaign_status(
+                    session,
+                    campaign.id,
+                    CampaignStatus.PAUSED,
+                    paused_at=datetime.now(timezone.utc),
+                    reason="chip_disconnected",
+                    metadata={"disconnected_chip": chip.alias}
+                )
+                
+                raise Exception(f"Chip {chip.alias} não está conectado (status: {chip.status}). Campanha pausada por segurança.")
             
             container_manager = WahaContainerManager()
             waha_container = await container_manager.get_user_container(str(chip.user_id))
@@ -279,15 +293,98 @@ async def _execute_send_message(message_id: UUID) -> bool:
                 api_key=waha_container['api_key']
             )
             
-            # Enviar mensagem via WAHA Plus
+            # Enviar mensagem via WAHA Plus (Multi-Steps Support)
             session_name = chip.extra_data.get("waha_session", f"chip_{chip.id}")
+            
+            steps = campaign.steps
+            start_step_index = message.current_step or 0
+            
+            # Modo Legado/Simples: Se não tiver steps definidos, criar um step único de texto
+            if not steps:
+                # message.content já contém o texto renderizado pelo _prepare_campaign_messages
+                steps = [{"type": "text", "content": message.content, "rendered": True}]
+            
             try:
-                response = await waha_client.send_message(
-                    session_id=session_name,
-                    to=contact.phone_number,
-                    text=message.content
-                )
-                logger.debug("Resposta WAHA Plus %s", response)
+                for idx, step in enumerate(steps[start_step_index:], start=start_step_index):
+                    step_type = step.get("type", "text")
+                    
+                    if step_type == "text":
+                        content = step.get("content", "")
+                        # Se já estiver marcado como renderizado (modo legado), usar direto
+                        if step.get("rendered"):
+                            text_to_send = content
+                        else:
+                            # Renderizar variáveis dinamicamente
+                            text_to_send = _render_message(content, contact)
+                            
+                        await waha_client.send_message(
+                            session_id=session_name,
+                            to=contact.phone_number,
+                            text=text_to_send
+                        )
+                        
+                    elif step_type == "image":
+                        media_url = step.get("media_url")
+                        caption = step.get("caption", "")
+                        if caption:
+                            caption = _render_message(caption, contact)
+                            
+                        if media_url:
+                            file_data = {"url": media_url}
+                            await waha_client.send_image(
+                                session_id=session_name,
+                                to=contact.phone_number,
+                                file_data=file_data,
+                                caption=caption
+                            )
+                            
+                    elif step_type == "video":
+                        media_url = step.get("media_url")
+                        caption = step.get("caption", "")
+                        if caption:
+                            caption = _render_message(caption, contact)
+                            
+                        if media_url:
+                            file_data = {"url": media_url}
+                            await waha_client.send_video(
+                                session_id=session_name,
+                                to=contact.phone_number,
+                                file_data=file_data,
+                                caption=caption
+                            )
+                            
+                    elif step_type == "audio":
+                        media_url = step.get("media_url")
+                        if media_url:
+                            file_data = {"url": media_url}
+                            # Tentar enviar como PTT (voice note) se configurado, senão áudio normal
+                            is_ppt = step.get("ppt", True)
+                            if is_ppt:
+                                await waha_client.send_voice(
+                                    session_id=session_name,
+                                    to=contact.phone_number,
+                                    file_data=file_data
+                                )
+                            else:
+                                # Fallback para áudio genérico via sendFile se necessário, mas sendVoice costuma tratar
+                                await waha_client.send_voice(
+                                    session_id=session_name,
+                                    to=contact.phone_number,
+                                    file_data=file_data
+                                )
+
+                    elif step_type == "delay":
+                        seconds = int(step.get("time", 5))
+                        # Limitar delay máximo por segurança (ex: 120s)
+                        seconds = min(seconds, 120)
+                        await asyncio.sleep(seconds)
+                    
+                    # Atualizar progresso
+                    message.current_step = idx + 1
+                    # Opcional: session.commit() aqui para checkpoint granular
+                
+                logger.debug("Todos os steps executados com sucesso para %s", contact.phone_number)
+                
             finally:
                 # Fechar conexões HTTP
                 await waha_client.close()

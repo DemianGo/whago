@@ -1009,7 +1009,11 @@ async function fetchAndDisplayQrCode(chipId) {
         if (data.status === "CONNECTED" || data.status === "WORKING") {
              qrStatus.textContent = "✅ Conectado com sucesso!";
              qrStatus.className = "text-center text-sm text-green-600 font-bold";
-             setTimeout(() => closeChipQrModal(), 2000);
+             // Atrasar fechamento do modal para usuário ver sucesso
+             setTimeout(() => {
+                 closeChipQrModal();
+                 void loadChips({ silent: true }); // Recarregar lista
+             }, 2000);
         } else if (data.status === "FAILED" || data.status === "STOPPED") {
              qrStatus.className = "text-center text-sm text-red-600 font-bold";
              statusMsg = "Erro na conexão. Tentando reiniciar...";
@@ -1029,7 +1033,10 @@ async function fetchAndDisplayQrCode(chipId) {
           qrStatus.textContent = "✅ Chip conectado com sucesso!";
           qrStatus.className = "text-center text-sm text-green-600 font-bold";
         }
-        setTimeout(() => closeChipQrModal(), 2000);
+        setTimeout(() => {
+            closeChipQrModal();
+            void loadChips({ silent: true });
+        }, 2000);
       }
     }
             
@@ -2383,6 +2390,7 @@ async function handleCampaignBasicSubmit(event) {
     description: document.getElementById("campaign-description")?.value?.trim() || null,
     message_template: templateInput.value.trim(),
     message_template_b: document.getElementById("campaign-template-b")?.value?.trim() || null,
+    steps: window.campaignSteps || null,
   };
   
   const scheduleToggle = document.getElementById("campaign-schedule-toggle");
@@ -2887,6 +2895,19 @@ async function loadCampaignForEdit(campaignId) {
   if (templateInput) templateInput.value = campaign.message_template || "";
   if (templateBInput) templateBInput.value = campaign.message_template_b || "";
   
+  // Carregar steps (Multi-Step Builder)
+  if (campaign.steps && Array.isArray(campaign.steps)) {
+    window.campaignSteps = campaign.steps;
+  } else {
+    // Fallback: Se não tem steps, mas tem message_template, criar um step de texto
+    if (campaign.message_template) {
+        window.campaignSteps = [{ type: "text", content: campaign.message_template }];
+    } else {
+        window.campaignSteps = [];
+    }
+  }
+  if (window.renderCampaignSteps) window.renderCampaignSteps();
+
   console.log("✅ Campos preenchidos:", {
     name: nameInput?.value,
     desc: descInput?.value,

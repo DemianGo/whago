@@ -541,45 +541,94 @@ class WAHAClient:
     ) -> dict[str, Any]:
         """
         Envia uma mensagem de texto via WAHA Plus.
+        """
+        return await self._send_request(session_id, to, text, endpoint="/api/sendText")
+
+    async def send_image(
+        self,
+        session_id: str,
+        to: str,
+        file_data: dict,
+        caption: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Envia uma imagem via WAHA Plus.
         
         Args:
-            session_id: Alias da sessão (ex: chip_<uuid>)
-            to: Número de telefone no formato internacional (ex: 5511999999999)
-            text: Conteúdo da mensagem
-            
-        Returns:
-            Dict com resultado do envio
+            file_data: Dict com 'url' (string) ou 'file' (base64 object)
+                       Ex: {"url": "https://..."} ou {"file": {"mimetype": "image/jpeg", "data": "base64..."}}
         """
+        payload = {"file": file_data}
+        if caption:
+            payload["caption"] = caption
+        return await self._send_request(session_id, to, payload, endpoint="/api/sendImage")
+
+    async def send_voice(
+        self,
+        session_id: str,
+        to: str,
+        file_data: dict,
+    ) -> dict[str, Any]:
+        """
+        Envia um áudio (PTT) via WAHA Plus.
+        """
+        payload = {"file": file_data}
+        return await self._send_request(session_id, to, payload, endpoint="/api/sendVoice")
+
+    async def send_video(
+        self,
+        session_id: str,
+        to: str,
+        file_data: dict,
+        caption: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Envia um vídeo via WAHA Plus (usa endpoint sendFile ou sendVideo se existir).
+        """
+        payload = {"file": file_data}
+        if caption:
+            payload["caption"] = caption
+        # WAHA costuma usar sendFile para vídeos também, ou sendVideo dependendo da versão.
+        # sendFile é mais seguro e genérico.
+        return await self._send_request(session_id, to, payload, endpoint="/api/sendFile")
+
+    async def _send_request(
+        self,
+        session_id: str,
+        to: str,
+        content: str | dict,
+        endpoint: str,
+    ) -> dict[str, Any]:
+        """Helper genérico para envio."""
         client = await self._get_client()
         
         try:
-            # Garantir formato correto do número (sem + @ ou sufixos)
             phone = to.replace("+", "").replace("@s.whatsapp.net", "").replace("@c.us", "").replace("@", "")
             
             payload = {
                 "session": session_id,
                 "chatId": f"{phone}@c.us",
-                "text": text,
             }
             
-            logger.info(f"📨 Enviando para WAHA: session={session_id}, chatId={phone}@c.us")
+            if isinstance(content, dict):
+                payload.update(content)
+            else:
+                # Assumindo que se for string é 'text' para sendText
+                payload["text"] = content
             
-            response = await client.post(
-                "/api/sendText",
-                json=payload
-            )
+            logger.info(f"📨 Enviando para WAHA ({endpoint}): session={session_id}, chatId={phone}@c.us")
+            
+            response = await client.post(endpoint, json=payload)
             
             if response.status_code != 200:
                 error_body = response.text
                 logger.error(f"❌ WAHA retornou {response.status_code}: {error_body}")
             
             response.raise_for_status()
-            
-            logger.info(f"Mensagem enviada com sucesso via sessão {session_id} para {phone}")
             return response.json()
             
         except httpx.HTTPError as e:
-            logger.error(f"Erro ao enviar mensagem: {e}")
+            logger.error(f"Erro ao enviar mensagem ({endpoint}): {e}")
             raise Exception(f"Falha ao enviar mensagem via WAHA: {e}") from e
 
     def _parse_proxy_url(self, proxy_url: str) -> dict[str, Any]:

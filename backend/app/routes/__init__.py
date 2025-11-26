@@ -1,5 +1,3 @@
-"""Pacote de rotas FastAPI."""
-
 from . import (
     auth,
     chips,
@@ -15,22 +13,11 @@ from . import (
     messages,
     webhooks,
     api_keys,
+    payments,
+    admin,
+    admin_proxies,
+    admin_chips,
+    user_proxy,
+    waha_webhooks,
+    media_gallery
 )
-
-__all__ = (
-    "auth",
-    "chips",
-    "campaigns",
-    "plans",
-    "users",
-    "dashboard",
-    "billing",
-    "frontend",
-    "reports",
-    "notifications",
-    "audit",
-    "messages",
-    "webhooks",
-    "api_keys",
-)
-

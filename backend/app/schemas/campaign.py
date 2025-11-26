@@ -43,6 +43,7 @@ class CampaignCreate(BaseModel):
     type: CampaignType = CampaignType.SIMPLE
     message_template: str = Field(min_length=1)
     message_template_b: Optional[str] = None
+    steps: Optional[list[dict]] = None
     scheduled_for: Optional[datetime] = None
     settings: Optional[CampaignSettings] = None
 
@@ -54,6 +55,7 @@ class CampaignUpdate(BaseModel):
     description: Optional[str] = Field(default=None, max_length=500)
     message_template: Optional[str] = Field(default=None, min_length=1)
     message_template_b: Optional[str] = None
+    steps: Optional[list[dict]] = None
     scheduled_for: Optional[datetime] = None
     settings: Optional[CampaignSettings] = None
 
@@ -83,6 +85,7 @@ class CampaignSummary(BaseModel):
 class CampaignDetail(CampaignSummary):
     message_template: str
     message_template_b: Optional[str]
+    steps: Optional[list[dict]] = None
     settings: Optional[CampaignSettings | dict]
     scheduled_for: Optional[datetime]
     media: list[CampaignMediaResponse] = Field(default_factory=list)
