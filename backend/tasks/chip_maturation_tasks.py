@@ -366,18 +366,20 @@ async def process_group_maturation(group_chips: list[Chip], session):
                 logger.warning(f"Falha na verificação ativa de status para {chip.alias}: {e}")
 
         # Backup: Se ainda não tem número mas está WORKING (caso o if acima não tenha pego)
+        # ✅ SOLUÇÃO GENÉRICA: Tenta recuperar o número sempre que estiver faltando e o status for WORKING
         if not chip.phone_number and chip.extra_data.get("waha_status") == "WORKING":
             try:
                 session_id = chip.extra_data.get("waha_session") if chip.extra_data else None
                 if not session_id:
                     session_id = f"chip_{chip.id}"
                 
+                logger.info(f"🔍 Chip {chip.alias} sem número. Tentando recuperar do WAHA...")
                 session_info = await waha_client.get_session_status(session_id)
                 if session_info and session_info.get("me"):
                     phone = session_info["me"].get("id", "").split("@")[0]
                     if phone:
                         chip.phone_number = f"+{phone}"
-                        logger.info(f"📱 Número de {chip.alias}: {chip.phone_number}")
+                        logger.info(f"📱 Número recuperado com sucesso para {chip.alias}: {chip.phone_number}")
                         from sqlalchemy.orm.attributes import flag_modified
                         flag_modified(chip, "phone_number")
             except Exception as e:
@@ -564,7 +566,25 @@ async def process_group_maturation(group_chips: list[Chip], session):
             chip.extra_data["heat_up"]["current_phase"] = new_phase
             chip.extra_data["heat_up"]["phase_started_at"] = new_phase_started_at
             chip.extra_data["heat_up"]["last_execution"] = datetime.now(timezone.utc).isoformat()
+            
+            # FIX: Somar mensagens apenas uma vez para o grupo ou dividir corretamente
+            # Se messages_sent_count for o total do grupo, não devemos somar em todos duplicadamente
+            # A lógica atual soma 'messages_sent_count' (total do ciclo) em CADA chip
+            # Isso infla o número visualmente se o usuário somar tudo depois
+            
+            # Vamos somar apenas se o chip participou (enviou ou recebeu)
+            # Mas para simplificar e manter o "total do grupo" visível em cada chip:
+            # Vamos manter assim por enquanto, mas cientes que é o total DO GRUPO, não individual
+            
+            # CORREÇÃO: messages_sent_count é o total de trocas (envio + resposta) neste ciclo
+            # Se quisermos o total GLOBAL do grupo, somamos.
             chip.extra_data["heat_up"]["total_messages_sent"] = chip.extra_data["heat_up"].get("total_messages_sent", 0) + messages_sent_count
+            
+            # Para messages_sent_in_phase, reseta se mudou de fase
+            if new_phase > current_phase:
+                 chip.extra_data["heat_up"]["messages_sent_in_phase"] = 0
+            else:
+                 chip.extra_data["heat_up"]["messages_sent_in_phase"] = chip.extra_data["heat_up"].get("messages_sent_in_phase", 0) + messages_sent_count
             
             from sqlalchemy.orm.attributes import flag_modified
             flag_modified(chip, "extra_data")

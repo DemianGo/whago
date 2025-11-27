@@ -2574,6 +2574,28 @@ function renderCampaignChips(chips, chipsInUse = new Set()) {
     `;
     container.appendChild(warning);
   }
+
+  // Aviso explicativo sobre grupos de aquecimento
+  if (chips.length > 1) {
+    const heatupInfo = document.createElement("div");
+    heatupInfo.className = "bg-blue-50 border border-blue-200 rounded-lg p-3 mb-4";
+    heatupInfo.innerHTML = `
+      <div class="flex gap-2">
+        <span class="text-xl">ℹ️</span>
+        <div>
+          <p class="text-sm font-bold text-blue-800">Aquecimento em Grupo</p>
+          <p class="text-sm text-blue-700 mt-1">
+            Para adicionar um novo chip a um grupo de aquecimento já existente, você precisa <strong>PARAR</strong> o aquecimento atual e iniciar um novo selecionando todos os chips desejados.
+          </p>
+          <p class="text-xs text-blue-600 mt-1">
+            Isso é necessário para garantir a sincronização segura das fases de aquecimento entre todos os chips.
+          </p>
+        </div>
+      </div>
+    `;
+    // Inserir antes da lista de chips
+    container.insertBefore(heatupInfo, container.firstChild);
+  }
   
   // Pegar o chip selecionado (apenas 1)
   const selectedChipId = campaignState.selectedChips.size > 0 ? Array.from(campaignState.selectedChips)[0] : null;

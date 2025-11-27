@@ -86,24 +86,33 @@ class ChipHeatUpService:
         chips = result.scalars().all()
         
         if len(chips) != len(request.chip_ids):
+            # Se algum chip não foi encontrado, pode ser erro de ID ou não pertence ao usuário
+            # Vamos identificar quais faltaram para feedback melhor
+            found_ids = [str(c.id) for c in chips]
+            missing = [str(cid) for cid in request.chip_ids if str(cid) not in found_ids]
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Um ou mais chips não foram encontrados."
+                detail=f"Chips não encontrados ou inválidos: {', '.join(missing)}"
             )
         
         # Verificar se todos estão conectados e operacionais
         disconnected = []
         for chip in chips:
             # Verificar status do banco
-            if chip.status != ChipStatus.CONNECTED:
+            # Permitimos CONNECTED e MATURING (para reiniciar ou agrupar)
+            # Se estiver MATURING, vamos resetar para o novo grupo
+            if chip.status not in [ChipStatus.CONNECTED, ChipStatus.MATURING]:
                 disconnected.append(f"{chip.alias} (Status: {chip.status})")
                 continue
             
             # Verificar status interno do WAHA (se disponível)
+            # O WAHA status pode ser WORKING, CONNECTED, ou STARTING (transiente)
             waha_status = chip.extra_data.get("waha_status") if chip.extra_data else None
-            # Allow STARTING as it might be a transient state during reconnection
-            if waha_status and waha_status not in ["WORKING", "CONNECTED", "STARTING"]:
-                disconnected.append(f"{chip.alias} (WAHA: {waha_status})")
+            
+            # Se status for None, assumimos que pode estar ok se o status do banco for CONNECTED
+            # Mas se tiver status explícito de erro, bloqueamos
+            if waha_status and waha_status in ["STOPPED", "FAILED", "DISCONNECTED"]:
+                 disconnected.append(f"{chip.alias} (WAHA: {waha_status})")
 
         if disconnected:
             raise HTTPException(
@@ -239,15 +248,16 @@ class ChipHeatUpService:
                 detail="Chip não encontrado."
             )
         
-        # Verificar se tem heat_up ativo
+        # Verificar se tem heat_up ativo ou pausado
         extra = chip.extra_data.copy() if chip.extra_data else {}
         heat_up_data = extra.get("heat_up", {})
         heat_status = heat_up_data.get("status", "")
         
-        if heat_status not in ["in_progress", "active"]:
+        # Permitir parar se estiver em progresso, ativo OU pausado
+        if heat_status not in ["in_progress", "active", "paused"]:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Chip não está em aquecimento."
+                detail=f"Chip não está em aquecimento ativo (status: {heat_status})."
             )
         
         # Parar aquecimento
