@@ -121,6 +121,14 @@ async def help_page(request: Request) -> HTMLResponse:
     )
 
 
+@router.get("/media-gallery", response_class=HTMLResponse)
+async def media_gallery_page(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse(
+        "media_gallery.html",
+        {"request": request, "page_id": "media-gallery"},
+    )
+
+
 # Admin Routes
 @router.get("/admin/login", response_class=HTMLResponse)
 async def admin_login_page(request: Request) -> HTMLResponse:

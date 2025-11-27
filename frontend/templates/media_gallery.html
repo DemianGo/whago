@@ -1,0 +1,194 @@
+{% extends "base.html" %}
+
+{% block title %}Galeria de Mídia - WHAGO{% endblock %}
+
+{% block content %}
+<div x-data="mediaGallery()" x-init="loadMedia()" class="space-y-6">
+    <div class="flex items-center justify-between">
+        <div>
+            <h1 class="text-2xl font-bold text-gray-900">Galeria de Mídia</h1>
+            <p class="mt-1 text-sm text-gray-500">Gerencie suas imagens, vídeos e áudios para usar nas campanhas.</p>
+        </div>
+        <div>
+            <button @click="$refs.fileInput.click()" 
+                class="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                <i class="fas fa-upload mr-2"></i>
+                Upload de Mídia
+            </button>
+            <input x-ref="fileInput" type="file" class="hidden" @change="uploadFile($event)" accept="image/*,video/*,audio/*">
+        </div>
+    </div>
+
+    <!-- Filtros -->
+    <div class="flex space-x-2">
+        <button @click="filter = 'all'" :class="{'bg-indigo-100 text-indigo-700': filter === 'all', 'bg-white text-gray-700': filter !== 'all'}" class="px-3 py-1 rounded-full text-sm font-medium border border-gray-300">Todos</button>
+        <button @click="filter = 'image'" :class="{'bg-indigo-100 text-indigo-700': filter === 'image', 'bg-white text-gray-700': filter !== 'image'}" class="px-3 py-1 rounded-full text-sm font-medium border border-gray-300">Imagens</button>
+        <button @click="filter = 'video'" :class="{'bg-indigo-100 text-indigo-700': filter === 'video', 'bg-white text-gray-700': filter !== 'video'}" class="px-3 py-1 rounded-full text-sm font-medium border border-gray-300">Vídeos</button>
+        <button @click="filter = 'audio'" :class="{'bg-indigo-100 text-indigo-700': filter === 'audio', 'bg-white text-gray-700': filter !== 'audio'}" class="px-3 py-1 rounded-full text-sm font-medium border border-gray-300">Áudios</button>
+    </div>
+
+    <!-- Grid de Mídia -->
+    <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4" x-show="!loading">
+        <template x-for="item in filteredItems" :key="item.id">
+            <div class="group relative bg-white border border-gray-200 rounded-lg overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+                <div class="aspect-w-10 aspect-h-7 bg-gray-100 flex items-center justify-center overflow-hidden h-32 relative">
+                    <!-- Preview -->
+                    <template x-if="item.content_type.startsWith('image/')">
+                        <img :src="item.url" class="object-cover w-full h-full" alt="">
+                    </template>
+                    <template x-if="item.content_type.startsWith('video/')">
+                        <div class="flex flex-col items-center justify-center text-gray-500">
+                            <i class="fas fa-video text-3xl"></i>
+                            <span class="text-xs mt-1">Vídeo</span>
+                        </div>
+                    </template>
+                    <template x-if="item.content_type.startsWith('audio/')">
+                        <div class="flex flex-col items-center justify-center text-gray-500">
+                            <i class="fas fa-music text-3xl"></i>
+                            <span class="text-xs mt-1">Áudio</span>
+                        </div>
+                    </template>
+                    
+                    <!-- Overlay Actions -->
+                    <div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-40 transition-all flex items-center justify-center opacity-0 group-hover:opacity-100 space-x-2">
+                        <a :href="item.url" target="_blank" class="p-2 bg-white rounded-full text-gray-700 hover:text-indigo-600" title="Visualizar">
+                            <i class="fas fa-eye"></i>
+                        </a>
+                        <button @click="deleteMedia(item.id)" class="p-2 bg-white rounded-full text-gray-700 hover:text-red-600" title="Excluir">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>
+                <div class="p-2">
+                    <p class="text-xs text-gray-900 truncate" x-text="item.filename"></p>
+                    <p class="text-xs text-gray-500" x-text="formatBytes(item.size_bytes)"></p>
+                </div>
+            </div>
+        </template>
+    </div>
+    
+    <div x-show="loading" class="flex justify-center py-12">
+        <i class="fas fa-spinner fa-spin text-3xl text-indigo-600"></i>
+    </div>
+
+    <div x-show="!loading && filteredItems.length === 0" class="text-center py-12 bg-white rounded-lg border border-dashed border-gray-300">
+        <i class="fas fa-images text-4xl text-gray-300 mb-3"></i>
+        <p class="text-gray-500">Nenhuma mídia encontrada.</p>
+    </div>
+</div>
+
+<script>
+    function mediaGallery() {
+        return {
+            items: [],
+            loading: true,
+            filter: 'all',
+            
+            async loadMedia() {
+                this.loading = true;
+                try {
+                    const response = await fetch('/api/v1/media-gallery', {
+                        headers: {
+                            'Authorization': `Bearer ${localStorage.getItem('token')}`
+                        }
+                    });
+                    if (response.ok) {
+                        this.items = await response.json();
+                    } else {
+                        showToast('Erro ao carregar mídia', 'error');
+                    }
+                } catch (e) {
+                    showToast('Erro de conexão', 'error');
+                } finally {
+                    this.loading = false;
+                }
+            },
+
+            async uploadFile(event) {
+                const file = event.target.files[0];
+                if (!file) return;
+
+                // Validar tamanho (16MB)
+                if (file.size > 16 * 1024 * 1024) {
+                    showToast('Arquivo muito grande. Máximo 16MB.', 'error');
+                    return;
+                }
+
+                const formData = new FormData();
+                formData.append('file', file);
+                
+                // Definir categoria baseada no tipo MIME
+                let category = 'other';
+                if (file.type.startsWith('image/')) category = 'image';
+                else if (file.type.startsWith('video/')) category = 'video';
+                else if (file.type.startsWith('audio/')) category = 'audio';
+                
+                formData.append('category', category);
+
+                this.loading = true; // Simples loading indicator global, poderia ser melhor
+                try {
+                    const response = await fetch('/api/v1/media-gallery', {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${localStorage.getItem('token')}`
+                        },
+                        body: formData
+                    });
+
+                    if (response.ok) {
+                        const newItem = await response.json();
+                        this.items.unshift(newItem);
+                        showToast('Upload concluído com sucesso!', 'success');
+                    } else {
+                        const error = await response.json();
+                        showToast(error.detail || 'Erro no upload', 'error');
+                    }
+                } catch (e) {
+                    showToast('Erro ao enviar arquivo', 'error');
+                } finally {
+                    this.loading = false;
+                    event.target.value = ''; // Reset input
+                }
+            },
+
+            async deleteMedia(id) {
+                if (!confirm('Tem certeza que deseja excluir este arquivo?')) return;
+
+                try {
+                    const response = await fetch(`/api/v1/media-gallery/${id}`, {
+                        method: 'DELETE',
+                        headers: {
+                            'Authorization': `Bearer ${localStorage.getItem('token')}`
+                        }
+                    });
+
+                    if (response.ok || response.status === 404) {
+                        this.items = this.items.filter(i => i.id !== id);
+                        showToast('Arquivo excluído.', 'success');
+                    } else {
+                        showToast('Erro ao excluir arquivo', 'error');
+                    }
+                } catch (e) {
+                    showToast('Erro de conexão', 'error');
+                }
+            },
+
+            get filteredItems() {
+                if (this.filter === 'all') return this.items;
+                return this.items.filter(i => i.category === this.filter);
+            },
+
+            formatBytes(bytes, decimals = 2) {
+                if (bytes === 0) return '0 Bytes';
+                const k = 1024;
+                const dm = decimals < 0 ? 0 : decimals;
+                const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB'];
+                const i = Math.floor(Math.log(bytes) / Math.log(k));
+                return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+            }
+        }
+    }
+</script>
+{% endblock %}
+
+
