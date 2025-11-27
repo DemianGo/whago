@@ -310,12 +310,23 @@
                     <div class="flex-1">
                         <label class="block text-xs font-medium text-gray-700 mb-1">Mensagem de Texto</label>
                         <textarea 
+                            id="step-text-${index}"
                             class="w-full text-sm border-slate-300 rounded-md focus:border-indigo-500 focus:ring-indigo-500" 
                             rows="3" 
                             placeholder="Olá {{nome}}..."
                             oninput="updateStep(${index}, 'content', this.value)"
                         >${step.content || ''}</textarea>
-                        <p class="text-[10px] text-gray-400 mt-1">Variáveis: {{nome}}, {{empresa}}...</p>
+                        <div class="flex justify-between items-center mt-1">
+                            <p class="text-[10px] text-gray-400">Variáveis: {{nome}}, {{empresa}}...</p>
+                            <div class="flex gap-2">
+                                <button type="button" onclick="generateSpintax(${index})" class="text-[10px] text-indigo-600 hover:text-indigo-800 flex items-center gap-1">
+                                    🔄 Spintax (IA)
+                                </button>
+                                <button type="button" onclick="rewriteWithAI(${index})" class="text-[10px] text-green-600 hover:text-green-800 flex items-center gap-1">
+                                    ✨ Melhorar (IA)
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 `;
             } else if (step.type === 'delay') {
@@ -390,6 +401,78 @@
         
         updateHiddenTemplate();
     };
+
+    // --- Funcionalidades de IA ---
+
+    async function rewriteWithAI(index) {
+        const textarea = document.getElementById(`step-text-${index}`);
+        const text = textarea.value;
+        if (!text) return alert('Digite algo para a IA melhorar.');
+
+        const btn = event.currentTarget;
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '⏳ Gerando...';
+        btn.disabled = true;
+
+        try {
+            const response = await fetch('/api/v1/ai/rewrite', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({ text: text, tone: 'persuasive' })
+            });
+
+            if (!response.ok) throw new Error('Falha na IA');
+            
+            const data = await response.json();
+            textarea.value = data.rewritten;
+            updateStep(index, 'content', data.rewritten);
+            
+        } catch (error) {
+            alert('Erro ao conectar com a IA. Verifique sua chave de API.');
+            console.error(error);
+        } finally {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
+    }
+
+    async function generateSpintax(index) {
+        const textarea = document.getElementById(`step-text-${index}`);
+        const text = textarea.value;
+        if (!text) return alert('Digite algo para gerar variações.');
+
+        const btn = event.currentTarget;
+        const originalText = btn.innerHTML;
+        btn.innerHTML = '⏳ Gerando...';
+        btn.disabled = true;
+
+        try {
+            const response = await fetch('/api/v1/ai/spintax', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${localStorage.getItem('token')}`
+                },
+                body: JSON.stringify({ text: text })
+            });
+
+            if (!response.ok) throw new Error('Falha na IA');
+            
+            const data = await response.json();
+            textarea.value = data.spintax;
+            updateStep(index, 'content', data.spintax);
+            
+        } catch (error) {
+            alert('Erro ao conectar com a IA. Verifique sua chave de API.');
+            console.error(error);
+        } finally {
+            btn.innerHTML = originalText;
+            btn.disabled = false;
+        }
+    }
 
     // --- Lógica de Seleção de Mídia ---
     
