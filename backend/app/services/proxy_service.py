@@ -87,8 +87,9 @@ class ProxyService:
             .where(ChipProxyAssignment.released_at.is_(None))
         )
         if collision_check.scalar_one_or_none():
-            # Adiciona sufixo aleatório
+            # Adiciona sufixo aleatório se houver colisão
             import random
+            timestamp = int(datetime.now(timezone.utc).timestamp())
             session_id = f"{chip_suffix}{timestamp}{random.randint(100, 999)}"
 
         # Cria ou atualiza assignment

@@ -288,10 +288,13 @@ class ChipService:
     async def delete_chip(self, user: User, chip_id: UUID) -> None:
         """
         Deleta um chip e sua sessão WAHA Plus.
-        """
-        import traceback
-        logger.info(f"DELETE_CHIP CHAMADO PARA {chip_id}. Traceback:\n{''.join(traceback.format_stack())}")
         
+        Fluxo correto:
+        1. Se chip está conectado, desconecta primeiro
+        2. Libera proxy (IP fica disponível)
+        3. Deleta sessão do WAHA Plus
+        4. Deleta registro do banco de dados
+        """
         chip = await self._get_user_chip(user, chip_id)
         
         # Obter cliente WAHA do container do usuário
@@ -345,40 +348,74 @@ class ChipService:
         3. Atualiza status para WAITING_QR
         4. Registra eventos
         """
+        # Capture IDs early to avoid expiration issues after commits
+        user_id_str = str(user.id)
+        user_id_uuid = user.id
+
         chip = await self._get_user_chip(user, chip_id)
         
         # Obter cliente WAHA do container do usuário
-        waha_client = await self._get_waha_client_for_user(str(user.id))
+        waha_client = await self._get_waha_client_for_user(user_id_str)
         session_name = chip.extra_data.get("waha_session", f"chip_{chip.id}")
         
         # 1. Deletar sessão antiga (se existir)
+        old_session_name = chip.extra_data.get("waha_session", f"chip_{chip.id}")
         try:
-            await waha_client.delete_session(session_name)
-            logger.info(f"Sessão WAHA antiga deletada: {session_name}")
+            await waha_client.delete_session(old_session_name)
+            logger.info(f"Sessão WAHA antiga deletada: {old_session_name}")
         except Exception as e:
             logger.warning(f"Sessão antiga não encontrada ou erro ao deletar: {e}")
         
-        # 2. Obter proxy (pode já existir ou atribuir novo)
+        # 2. ROTACIONAR PROXY (Garantir IP novo/funcional)
+        # Se o usuário está reconectando, é provável que a conexão atual (Proxy) esteja ruim.
+        # Vamos liberar o proxy atual e solicitar um novo, imitando o comportamento de "Excluir e Adicionar Novo".
         proxy_service = ProxyService(self.session)
-        proxy_url = await proxy_service.get_chip_proxy_url(chip.id)
         
-        if not proxy_url:
-            # Se não tem proxy, atribuir novo
+        # Tentar liberar proxy atual se existir
+        try:
+            await proxy_service.release_proxy_from_chip(chip.id)
+            logger.info(f"Proxy antigo liberado para o chip {chip.id}")
+        except Exception as e:
+            logger.warning(f"Erro ao liberar proxy antigo: {e}")
+
+        # Atribuir novo proxy
+        try:
+            proxy_url = await proxy_service.assign_proxy_to_chip(chip)
+            logger.info(f"Novo proxy atribuído ao chip {chip.id} para reconexão")
+            
+            # 🔄 REFRESH CRÍTICO: O proxy_service.assign fez commit, o que pode ter expirado o objeto chip.
+            # Vamos recarregar via query direta para evitar MissingGreenlet
+            result = await self.session.execute(select(Chip).where(Chip.id == chip_id))
+            chip = result.scalar_one()
+            
+        except Exception as exc:
+            logger.error(f"Falha crítica ao atribuir proxy na reconexão: {exc}")
+            # Tentar rollback para salvar a sessão se possível
             try:
-                proxy_url = await proxy_service.assign_proxy_to_chip(chip)
-                logger.info(f"Novo proxy atribuído ao chip {chip.id}")
-            except Exception as exc:
-                logger.warning(f"Falha ao atribuir proxy ao chip {chip.id} na reconexão: {exc}")
-                proxy_url = None
+                await self.session.rollback()
+                result = await self.session.execute(select(Chip).where(Chip.id == chip_id))
+                chip = result.scalar_one()
+            except:
+                pass
+            proxy_url = None
         
-        # 3. Criar nova sessão WAHA
+        # 3. Criar nova sessão WAHA com nome ÚNICO para evitar conflito de cache
+        # Adicionamos um sufixo curto (timestamp) para garantir uma sessão limpa no WAHA
+        import time
+        timestamp_suffix = int(time.time()) % 100000  # Últimos 5 dígitos
+        session_name = f"chip_{chip.id}_{timestamp_suffix}"
+
+        # Pequeno delay para garantir estabilidade
+        import asyncio
+        await asyncio.sleep(1.0)
+
         try:
             waha_response = await waha_client.create_session(
                 alias=session_name,
                 name=session_name,
                 proxy_url=proxy_url,
-                tenant_id=str(user.id),
-                user_id=str(user.id),
+                tenant_id=user_id_str,
+                user_id=user_id_str,
                 engine="noweb", # Forçar NOWEB explicitamente
             )
             logger.info(f"Nova sessão WAHA criada: {session_name}")
@@ -408,7 +445,7 @@ class ChipService:
         
         notifier = NotificationService(self.session)
         await notifier.create(
-            user_id=user.id,
+            user_id=user_id_uuid,
             title="Chip reconectando",
             message=f"O chip {chip.alias} está aguardando novo QR Code.",
             type_=NotificationType.INFO,
@@ -418,7 +455,7 @@ class ChipService:
         
         audit = AuditService(self.session)
         await audit.record(
-            user_id=user.id,
+            user_id=user_id_uuid,
             action="chip.reconnect",
             entity_type="chip",
             entity_id=str(chip.id),

@@ -46,14 +46,22 @@ async def receive_waha_webhook(
             logger.warning(f"Webhook ignorado - sessão inválida: {session_name}")
             return {"status": "ignored", "reason": "invalid_session"}
         
-        # Extrair chip_id da sessão (formato: chip_{uuid})
-        chip_id_str = session_name.replace("chip_", "")
+        # Extrair chip_id da sessão (formato: chip_{uuid} ou chip_{uuid}_{timestamp})
+        raw_id = session_name.replace("chip_", "")
+        
+        # Remover sufixo de timestamp se existir (ex: _12345)
+        if "_" in raw_id:
+            parts = raw_id.split("_")
+            # O UUID deve ser a primeira parte (antes do timestamp)
+            chip_id_str = parts[0]
+        else:
+            chip_id_str = raw_id
         
         # Converter para UUID
         try:
             chip_uuid = UUID(chip_id_str)
         except ValueError:
-            logger.error(f"Chip ID inválido (não é UUID): {chip_id_str} | Session: {session_name}")
+            logger.error(f"Chip ID inválido (não é UUID): {chip_id_str} | Session: {session_name} | Raw: {raw_id}")
             return {"status": "error", "reason": "invalid_chip_id"}
         
         # Buscar chip
@@ -92,6 +100,10 @@ async def receive_waha_webhook(
                         extra_data={"chip_id": str(chip.id), "action": "reconnect"}
                     )
                     db.add(notification)
+
+            elif waha_status == "STARTING":
+                chip.status = ChipStatus.CONNECTING
+                logger.info(f"Chip {chip.alias} está iniciando (STARTING). Status visual: CONNECTING")
 
             elif waha_status in ["WORKING", "CONNECTED"]:
                 chip.status = ChipStatus.CONNECTED

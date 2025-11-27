@@ -880,14 +880,43 @@ async function handleChipFormSubmit(event) {
 }
 
 async function openConnectModal(chipId) {
+  // Abre o modal principal primeiro
   openChipModal();
+  
+  // Oculta formulário de criação
   const form = document.getElementById("chip-form");
   if (form) form.classList.add("hidden");
   
+  // Ajusta título
   const modalTitle = document.querySelector("#chip-modal h3");
-  if (modalTitle) modalTitle.textContent = "Conectar WhatsApp";
+  if (modalTitle) modalTitle.textContent = "Reconectar WhatsApp";
   
-  await showChipQrCode(chipId);
+  // Mostra feedback inicial
+  const qrSection = document.getElementById("chip-qr-section");
+  if (qrSection) qrSection.classList.remove("hidden");
+  
+  const qrStatus = document.getElementById("chip-qr-status");
+  if (qrStatus) {
+    qrStatus.textContent = "Solicitando reconexão...";
+    qrStatus.className = "text-center text-sm text-blue-600 animate-pulse";
+  }
+
+  // Chama endpoint de reconexão
+  try {
+    const response = await apiFetch(`/chips/${chipId}/reconnect`, { method: 'POST' });
+    if (!response.ok) {
+        throw new Error("Falha ao iniciar reconexão");
+    }
+    // Se sucesso, inicia o fluxo de mostrar QR Code
+    await showChipQrCode(chipId);
+    
+  } catch (error) {
+    console.error(error);
+    if (qrStatus) {
+        qrStatus.textContent = "Erro ao tentar reconectar. Tente novamente.";
+        qrStatus.className = "text-center text-sm text-red-600";
+    }
+  }
 }
 
 async function showChipQrCode(chipId) {
