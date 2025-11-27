@@ -257,6 +257,10 @@ async def process_group_maturation(group_chips: list[Chip], session):
     
     # Pegar dados do primeiro chip (todos do grupo compartilham o mesmo plano)
     first_chip = group_chips[0]
+    
+    # REFRESH para garantir status atualizado do banco
+    await session.refresh(first_chip)
+    
     heat_up_data = first_chip.extra_data.get("heat_up", {}) if first_chip.extra_data else {}
     
     if heat_up_data.get("status") != "in_progress":
@@ -565,6 +569,24 @@ async def process_group_maturation(group_chips: list[Chip], session):
             from sqlalchemy.orm.attributes import flag_modified
             flag_modified(chip, "extra_data")
     
+    # VERIFICAÇÃO FINAL ANTES DO COMMIT
+    # Para evitar sobrescrever status "stopped" ou "paused" se o usuário parou durante a execução
+    try:
+        # Consultar status atual no banco (sem refresh no objeto para não perder alterações locais)
+        check_result = await session.execute(
+            select(Chip.extra_data).where(Chip.id == first_chip.id)
+        )
+        current_db_data = check_result.scalar_one_or_none()
+        current_db_status = current_db_data.get("heat_up", {}).get("status") if current_db_data else None
+        
+        if current_db_status != "in_progress":
+            logger.warning(f"⚠️ Status mudou para '{current_db_status}' durante a execução. Abortando salvamento para não sobrescrever.")
+            return
+    except Exception as e:
+        logger.error(f"Erro ao verificar status final: {e}")
+        # Em caso de erro na verificação, melhor não salvar por segurança
+        return
+
     await session.commit()
     logger.info("💾 Progresso salvo no banco de dados")
 
@@ -695,6 +717,16 @@ async def process_chip_maturation(chip_id: str):
             from sqlalchemy.orm.attributes import flag_modified
             flag_modified(chip, "extra_data")
             
+            # Check DB status before committing
+            check_result = await session.execute(
+                select(Chip.extra_data).where(Chip.id == UUID(chip_id))
+            )
+            current_db_data = check_result.scalar_one_or_none()
+            current_db_status = current_db_data.get("heat_up", {}).get("status") if current_db_data else None
+            
+            if current_db_status != "in_progress":
+                 return
+
             await session.commit()
         
         finally:

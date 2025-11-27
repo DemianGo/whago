@@ -254,7 +254,12 @@ async def get_global_maturation_stats(
         
         for chip in chips:
             heat_up = chip.extra_data.get("heat_up", {})
-            if heat_up.get("status") == "in_progress":
+            # Contar apenas os que estão em progresso e realmente conectados
+            is_heat_active = heat_up.get("status") == "in_progress"
+            
+            # Se status do chip não for CONNECTED ou CONNECTING, considerar pausado no monitoramento visual
+            # Isso evita o "3 conectados, 2 reais"
+            if is_heat_active and chip.status in [ChipStatus.CONNECTED, ChipStatus.CONNECTING]:
                 groups.add(heat_up.get("group_id"))
                 total_messages_today += heat_up.get("messages_sent_in_phase", 0) # Simplificado
                 

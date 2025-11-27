@@ -101,7 +101,8 @@ class ChipHeatUpService:
             
             # Verificar status interno do WAHA (se disponível)
             waha_status = chip.extra_data.get("waha_status") if chip.extra_data else None
-            if waha_status and waha_status not in ["WORKING", "CONNECTED"]:
+            # Allow STARTING as it might be a transient state during reconnection
+            if waha_status and waha_status not in ["WORKING", "CONNECTED", "STARTING"]:
                 disconnected.append(f"{chip.alias} (WAHA: {waha_status})")
 
         if disconnected:
