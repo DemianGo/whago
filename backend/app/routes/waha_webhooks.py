@@ -116,9 +116,46 @@ async def receive_waha_webhook(
                 # Se mudamos para 'paused', ele NÃO retoma sozinho. Isso é mais seguro conforme pedido ("evitar bagunça").
                 
             elif waha_status in ["FAILED", "STOPPED"]:
+                # 🔄 AUTO-HEAL: Se falhar/parar, tentar recuperar a sessão antes de decretar morte
+                try:
+                    logger.info(f"Chip {chip.alias} com status {waha_status}. Tentando AUTO-RECOVERY...")
+                    
+                    # Obter cliente WAHA correto
+                    from app.services.chip_service import ChipService
+                    service = ChipService(db)
+                    waha_client = await service._get_waha_client_for_user(str(chip.user_id))
+                    
+                    # Tentar restart da sessão
+                    # O WAHA Client já tem lógica para startar se estiver stopped, mas vamos forçar explicitamente
+                    # Primeiro um stop para limpar estado (se estiver failed)
+                    await waha_client._stop_session(session_name)
+                    import asyncio
+                    await asyncio.sleep(2)
+                    
+                    # Depois um start
+                    await waha_client._get_client() # Garante cliente iniciado
+                    start_response = await waha_client._client.post(f"/api/sessions/{session_name}/start")
+                    
+                    if start_response.status_code == 200:
+                         logger.info(f"AUTO-RECOVERY enviou START com sucesso para {chip.alias}. Aguardando recuperação...")
+                         # Não alterar status para DISCONNECTED ainda, deixar como está ou mudar para CONNECTING
+                         # Se funcionar, o próximo webhook será WORKING/CONNECTED
+                         
+                         # Atualizar status visual para CONNECTING para o usuário não assustar
+                         chip.status = ChipStatus.CONNECTING
+                         chip.extra_data = chip.extra_data or {}
+                         chip.extra_data["waha_status"] = "RECOVERING"
+                         await db.commit()
+                         return {"status": "recovering", "session": session_name}
+                    
+                except Exception as recovery_error:
+                    logger.error(f"Falha no AUTO-RECOVERY para chip {chip.alias}: {recovery_error}")
+                    # Se falhar a recuperação, aí sim cai para o bloco de desconexão abaixo
+                
+                # Se chegou aqui, é porque falhou ou a recuperação não funcionou
                 chip.status = ChipStatus.DISCONNECTED
                 
-                # 🛑 SEGURANÇA: Pausar maturação se falhar
+                # 🛑 SEGURANÇA: Pausar maturação se falhar definitivamente
                 chip.extra_data = chip.extra_data or {}
                 heat_up = chip.extra_data.get("heat_up", {})
                 if heat_up.get("status") == "in_progress":
@@ -139,6 +176,9 @@ async def receive_waha_webhook(
             chip.extra_data = chip.extra_data or {}
             chip.extra_data["waha_status"] = waha_status
             chip.extra_data["last_webhook"] = payload
+            
+            from sqlalchemy.orm.attributes import flag_modified
+            flag_modified(chip, "extra_data")
             
             await db.commit()
             logger.info(f"Chip {chip.id} atualizado | Status: {chip.status}")

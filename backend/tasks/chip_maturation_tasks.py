@@ -571,20 +571,27 @@ async def process_group_maturation(group_chips: list[Chip], session):
     
     # VERIFICAÇÃO FINAL ANTES DO COMMIT
     # Para evitar sobrescrever status "stopped" ou "paused" se o usuário parou durante a execução
+    # ⚠️ IMPORTANTE: Usar uma NOVA conexão isolada para furar qualquer cache de sessão
     try:
-        # Consultar status atual no banco (sem refresh no objeto para não perder alterações locais)
-        check_result = await session.execute(
-            select(Chip.extra_data).where(Chip.id == first_chip.id)
-        )
-        current_db_data = check_result.scalar_one_or_none()
-        current_db_status = current_db_data.get("heat_up", {}).get("status") if current_db_data else None
+        # Criar engine temporária para verificação isolada
+        temp_engine = create_async_engine(settings.database_url.replace("postgresql://", "postgresql+asyncpg://"), echo=False)
+        temp_session_maker = async_sessionmaker(temp_engine, expire_on_commit=False)
         
-        if current_db_status != "in_progress":
-            logger.warning(f"⚠️ Status mudou para '{current_db_status}' durante a execução. Abortando salvamento para não sobrescrever.")
-            return
+        async with temp_session_maker() as temp_session:
+            check_result = await temp_session.execute(
+                select(Chip.extra_data).where(Chip.id == first_chip.id)
+            )
+            current_db_data = check_result.scalar_one_or_none()
+            current_db_status = current_db_data.get("heat_up", {}).get("status") if current_db_data else None
+            
+            if current_db_status != "in_progress":
+                logger.warning(f"⚠️ [ISOLATED CHECK] Status mudou para '{current_db_status}' durante a execução. Abortando salvamento.")
+                return
+        
+        await temp_engine.dispose()
+            
     except Exception as e:
         logger.error(f"Erro ao verificar status final: {e}")
-        # Em caso de erro na verificação, melhor não salvar por segurança
         return
 
     await session.commit()
@@ -717,14 +724,25 @@ async def process_chip_maturation(chip_id: str):
             from sqlalchemy.orm.attributes import flag_modified
             flag_modified(chip, "extra_data")
             
-            # Check DB status before committing
-            check_result = await session.execute(
-                select(Chip.extra_data).where(Chip.id == UUID(chip_id))
-            )
-            current_db_data = check_result.scalar_one_or_none()
-            current_db_status = current_db_data.get("heat_up", {}).get("status") if current_db_data else None
-            
-            if current_db_status != "in_progress":
+            # Check DB status before committing using ISOLATED connection
+            try:
+                temp_engine = create_async_engine(settings.database_url.replace("postgresql://", "postgresql+asyncpg://"), echo=False)
+                # Use direct connection for minimal overhead
+                async with temp_engine.begin() as conn:
+                    check_result = await conn.execute(
+                        select(Chip.extra_data).where(Chip.id == UUID(chip_id))
+                    )
+                    current_db_data = check_result.scalar_one_or_none()
+                    current_db_status = current_db_data.get("heat_up", {}).get("status") if current_db_data else None
+                    
+                    if current_db_status != "in_progress":
+                         logger.warning(f"⚠️ [ISOLATED CHECK] Chip {chip_id} status changed to '{current_db_status}'. Aborting commit.")
+                         await temp_engine.dispose()
+                         return
+                
+                await temp_engine.dispose()
+            except Exception as e:
+                 logger.error(f"Error checking DB status: {e}")
                  return
 
             await session.commit()

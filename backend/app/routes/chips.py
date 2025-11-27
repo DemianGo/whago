@@ -238,13 +238,7 @@ async def get_global_maturation_stats(
     try:
         # Buscar todos os chips em maturação
         result = await session.execute(
-            select(Chip).where(
-                Chip.user_id == current_user.id,
-                or_(
-                    Chip.status == ChipStatus.MATURING,
-                    func.jsonb_extract_path_text(Chip.extra_data, 'heat_up', 'status') == 'in_progress'
-                )
-            )
+            select(Chip).where(Chip.user_id == current_user.id)
         )
         chips = result.scalars().all()
         
@@ -255,11 +249,13 @@ async def get_global_maturation_stats(
         for chip in chips:
             heat_up = chip.extra_data.get("heat_up", {})
             # Contar apenas os que estão em progresso e realmente conectados
-            is_heat_active = heat_up.get("status") == "in_progress"
+            # Se status for completed ou in_progress, deve aparecer no monitoramento
+            heat_status = heat_up.get("status")
+            is_active_or_completed = heat_status in ["in_progress", "completed"]
             
-            # Se status do chip não for CONNECTED ou CONNECTING, considerar pausado no monitoramento visual
+            # Se status do chip não for CONNECTED ou CONNECTING ou MATURING, considerar pausado no monitoramento visual
             # Isso evita o "3 conectados, 2 reais"
-            if is_heat_active and chip.status in [ChipStatus.CONNECTED, ChipStatus.CONNECTING]:
+            if is_active_or_completed and chip.status in [ChipStatus.CONNECTED, ChipStatus.CONNECTING, ChipStatus.MATURING]:
                 groups.add(heat_up.get("group_id"))
                 total_messages_today += heat_up.get("messages_sent_in_phase", 0) # Simplificado
                 
