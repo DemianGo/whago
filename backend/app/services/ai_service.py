@@ -16,9 +16,9 @@ class AIService:
         if self.api_key:
             try:
                 genai.configure(api_key=self.api_key)
-                # Usar gemini-pro ou flash dependendo da disponibilidade
-                self.model = genai.GenerativeModel('gemini-pro') 
-                logger.info("AI Service inicializado com Gemini Pro")
+                # Usar gemini-2.0-flash como padrão (disponível e rápido)
+                self.model = genai.GenerativeModel('gemini-2.0-flash') 
+                logger.info("AI Service inicializado com Gemini 2.0 Flash")
             except Exception as e:
                 logger.error(f"Erro ao configurar AI Service: {e}")
                 self.model = None
