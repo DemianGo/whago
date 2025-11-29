@@ -10,8 +10,8 @@ logger = logging.getLogger("whago.ai")
 
 class AIService:
     def __init__(self):
-        # Prioridade: Variável de ambiente > Hardcoded (fallback do usuário)
-        self.api_key = os.getenv("GEMINI_API_KEY") or "AIzaSyB-xy1wUh7HyCFt1HcmzdTatOYw1pcSXPw"
+        # Prioridade: Variável de ambiente
+        self.api_key = os.getenv("GEMINI_API_KEY")
         
         if self.api_key:
             try:
@@ -33,12 +33,16 @@ class AIService:
         if not self.model:
             return text # Fallback para o original se não tiver chave
 
+        logger.info(f"Solicitando rewrite para: {text[:50]}...")
+
         prompt = f"""
         Você é um especialista em Copywriting para WhatsApp Marketing.
         
-        Tarefa: Reescreva a mensagem abaixo.
+        Tarefa: Reescreva a mensagem abaixo para torná-la mais atrativa e persuasiva.
         Objetivo: Melhorar a clareza, persuasão e evitar bloqueios (anti-spam).
         Tom desejado: {tone} (Ex: Amigável, Profissional, Urgente, Persuasivo).
+        
+        IMPORTANTE: O texto reescrito DEVE ser diferente do original, mas mantendo a ideia central.
         
         Mensagem original:
         "{text}"
@@ -49,7 +53,9 @@ class AIService:
         try:
             # Executar em thread separada para não bloquear loop assíncrono
             response = await self.model.generate_content_async(prompt)
-            return response.text.strip()
+            rewritten = response.text.strip()
+            logger.info(f"Rewrite concluído: {rewritten[:50]}...")
+            return rewritten
         except Exception as e:
             logger.error(f"Erro ao gerar texto com IA: {e}")
             return text # Fallback em caso de erro
@@ -61,6 +67,8 @@ class AIService:
         """
         if not self.model:
             return text
+
+        logger.info(f"Solicitando spintax para: {text[:50]}...")
 
         prompt = f"""
         Você é um especialista em Spintax para automação.
@@ -75,7 +83,7 @@ class AIService:
         2. Mantenha emojis se fizer sentido, variando-os também.
         3. NÃO altere URLs ou códigos.
         4. O texto resultante deve ser legível em qualquer combinação.
-
+        
         Mensagem original:
         "{text}"
 
@@ -84,7 +92,9 @@ class AIService:
 
         try:
             response = await self.model.generate_content_async(prompt)
-            return response.text.strip()
+            spintax = response.text.strip()
+            logger.info(f"Spintax concluído: {spintax[:50]}...")
+            return spintax
         except Exception as e:
             logger.error(f"Erro ao gerar Spintax com IA: {e}")
             return text
